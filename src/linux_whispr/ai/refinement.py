@@ -53,8 +53,22 @@ class RefinementPipeline:
 
         assert self._backend is not None
 
-        if not self._backend.is_available():
+        try:
+            available = self._backend.is_available()
+        except Exception:
+            logger.exception("Could not check AI refinement availability")
+            self._event_bus.emit(
+                "ai.error",
+                message="AI refinement is unavailable. Check the configured AI service.",
+            )
+            return raw_text
+
+        if not available:
             logger.warning("LLM backend not available, returning raw text")
+            self._event_bus.emit(
+                "ai.error",
+                message="AI refinement is unavailable. Check the configured AI service.",
+            )
             return raw_text
 
         self._event_bus.emit("ai.started")
@@ -83,4 +97,8 @@ class RefinementPipeline:
 
         except Exception:
             logger.exception("AI refinement failed, returning raw text")
+            self._event_bus.emit(
+                "ai.error",
+                message="AI refinement failed. Check the configured AI service.",
+            )
             return raw_text

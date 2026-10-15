@@ -15,7 +15,7 @@ authors = [
 keywords = ["voice", "dictation", "whisper", "linux", "speech-to-text"]
 classifiers = [
     "Development Status :: 3 - Alpha",
-    "Environment :: X11 Applications :: GTK",
+    "Environment :: X11 Applications :: Qt",
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX :: Linux",
@@ -43,6 +43,13 @@ dependencies = [
     # Hotkey fallback
     "pynput>=1.7",
 
+    # Dashboard (always runs with the dictation service)
+    "fastapi>=0.109",
+    "uvicorn[standard]>=0.27",
+
+    # Native tray and recording overlay, including Python 3.14 wheels
+    "PySide6-Essentials>=6.10.1,<7",
+
     # Utilities
     "rich>=13.0",
 ]
@@ -50,7 +57,6 @@ dependencies = [
 [project.optional-dependencies]
 gtk = [
     "PyGObject>=3.46",
-    "pystray>=0.19",
 ]
 cloud = [
     "openai>=1.0",
@@ -61,12 +67,11 @@ cloud = [
 local-llm = [
     "llama-cpp-python>=0.2.0",
 ]
-web = [
-    "fastapi>=0.109",
-    "uvicorn[standard]>=0.27",
+amd = [
+    "pywhispercpp==1.5.1",
 ]
 all = [
-    "linux-whispr[gtk,cloud,local-llm,web]",
+    "linux-whispr[gtk,cloud,local-llm,amd]",
 ]
 dev = [
     "pytest>=7.0",
@@ -75,9 +80,13 @@ dev = [
     "ruff>=0.1",
 ]
 
+[tool.uv]
+no-binary-package = ["pywhispercpp"]
+extra-build-variables = { pywhispercpp = { GGML_VULKAN = "1", CMAKE_INSTALL_RPATH = "$ORIGIN", CMAKE_BUILD_WITH_INSTALL_RPATH = "ON" } }
+
 [project.scripts]
 linux-whispr = "linux_whispr.__main__:main"
-linux-whispr-web = "linux_whispr.web.server:run_server"
+linux-whispr-web = "linux_whispr.__main__:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/linux_whispr"]

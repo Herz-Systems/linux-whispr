@@ -44,3 +44,19 @@ class TestAppConfig:
         assert loaded.stt.model == "small"
         assert loaded.stt.backend == "faster-whisper"  # default preserved
         assert loaded.hotkey.dictation == "F12"  # default preserved
+
+    def test_whisper_cpp_settings_round_trip(self, tmp_path: Path) -> None:
+        config = AppConfig()
+        config.stt.backend = "whisper-cpp"
+        config.stt.model = "small"
+        config.stt.device = "vulkan"
+        config.stt.compute_type = "auto"
+
+        config_path = tmp_path / "config.toml"
+        config.save(config_path)
+
+        loaded = AppConfig.load(config_path)
+        assert loaded.stt.backend == "whisper-cpp"
+        assert loaded.stt.model == "small"
+        assert loaded.stt.device == "vulkan"
+        assert loaded.stt.compute_type == "auto"

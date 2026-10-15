@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import signal
 import sys
 
 from linux_whispr import __version__
@@ -40,21 +39,11 @@ def parse_args() -> argparse.Namespace:
         prog="linux-whispr",
         description="Privacy-first voice dictation for Linux",
     )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Enable debug logging"
-    )
-    parser.add_argument(
-        "--version", action="version", version=f"linux-whispr {__version__}"
-    )
-    parser.add_argument(
-        "--config", type=str, default=None, help="Path to config file"
-    )
-    parser.add_argument(
-        "--no-tray", action="store_true", help="Run without system tray icon"
-    )
-    parser.add_argument(
-        "--setup", action="store_true", help="Re-run the first-time setup wizard"
-    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
+    parser.add_argument("--version", action="version", version=f"linux-whispr {__version__}")
+    parser.add_argument("--config", type=str, default=None, help="Path to config file")
+    parser.add_argument("--no-tray", action="store_true", help="Run without system tray icon")
+    parser.add_argument("--setup", action="store_true", help="Re-run the first-time setup wizard")
     parser.add_argument(
         "--list-devices", action="store_true", help="List audio input devices and exit"
     )
@@ -117,21 +106,24 @@ def main() -> None:
     config_path = Path(args.config) if args.config else None
     config = AppConfig.load(config_path)
 
-    # First-run wizard
-    if config.first_run or args.setup:
+    # The setup wizard is explicit so a normal first launch always starts the
+    # dictation engine and dashboard together.
+    if args.setup:
         logger.info("Running setup wizard...")
         from linux_whispr.events import event_bus
         from linux_whispr.ui.wizard import SetupWizard
 
         wizard = SetupWizard(config=config, event_bus=event_bus)
         wizard.run()
-        # Config is saved by the wizard; reload in case wizard modified it
+        # Config is saved by the wizard; reload in case wizard modified it.
         config = AppConfig.load(config_path)
+    elif config.first_run:
+        logger.info("Starting without the setup wizard. Run with --setup to configure LinuxWhispr.")
 
     # Create and setup application
     from linux_whispr.app import LinuxWhispr
 
-    app = LinuxWhispr(config=config)
+    app = LinuxWhispr(config=config, enable_tray=not args.no_tray)
 
     try:
         app.setup()
@@ -150,33 +142,11 @@ def main() -> None:
 
 
 def _run_main_loop(logger: logging.Logger) -> None:
-    """Run the GLib main loop so GTK overlay events are processed.
+    """Run the Qt event loop that drives the native tray and overlay."""
+    from linux_whispr.ui.desktop import run_desktop_loop
 
-    Falls back to signal.pause() when GLib is not available (overlay
-    will be disabled but core dictation still works).
-    """
-    try:
-        from gi.repository import GLib
-
-        loop = GLib.MainLoop()
-
-        def _on_shutdown(*_args: object) -> bool:
-            loop.quit()
-            return GLib.SOURCE_REMOVE
-
-        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, _on_shutdown)
-        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, _on_shutdown)
-
-        loop.run()
-    except ImportError:
-        logger.debug("GLib not available, falling back to signal.pause()")
-
-        def _signal_handler(sig: int, frame: object) -> None:
-            sys.exit(0)
-
-        signal.signal(signal.SIGINT, _signal_handler)
-        signal.signal(signal.SIGTERM, _signal_handler)
-        signal.pause()
+    logger.debug("Starting Qt desktop event loop")
+    run_desktop_loop()
 
 
 if __name__ == "__main__":

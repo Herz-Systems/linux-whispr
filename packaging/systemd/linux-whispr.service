@@ -1,6 +1,6 @@
 [Unit]
 Description=LinuxWhispr — Voice Dictation for Linux
-Documentation=https://github.com/your-username/linux-whispr
+Documentation=https://github.com/linx-systems/linux-whispr
 After=graphical-session.target
 PartOf=graphical-session.target
 

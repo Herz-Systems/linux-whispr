@@ -1,4 +1,4 @@
-"""Download, list, and delete Whisper models."""
+"""Download, list, and delete backend-scoped Whisper models."""
 
 from __future__ import annotations
 
@@ -8,11 +8,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from linux_whispr.constants import MODELS_DIR, SUPPORTED_WHISPER_MODELS
+from linux_whispr.constants import (
+    MODELS_DIR,
+    SUPPORTED_WHISPER_CPP_MODELS,
+    SUPPORTED_WHISPER_MODELS,
+)
 
 logger = logging.getLogger(__name__)
 
-# Approximate model sizes in MB (for display purposes)
+FASTER_WHISPER_BACKEND = "faster-whisper"
+WHISPER_CPP_BACKEND = "whisper-cpp"
+SUPPORTED_MODEL_BACKENDS = (FASTER_WHISPER_BACKEND, WHISPER_CPP_BACKEND)
+WHISPER_CPP_REPOSITORY = "ggerganov/whisper.cpp"
+
+# Approximate faster-whisper model sizes in MB (for display purposes).
 MODEL_SIZES: dict[str, int] = {
     "tiny": 75,
     "base": 150,
@@ -21,6 +30,16 @@ MODEL_SIZES: dict[str, int] = {
     "large-v3": 3100,
     "large-v3-turbo": 1600,
     "distil-large-v3": 1500,
+}
+
+# Official ggerganov/whisper.cpp GGML artifact sizes, rounded up to MiB.
+WHISPER_CPP_MODEL_SIZES: dict[str, int] = {
+    "tiny": 75,
+    "base": 142,
+    "small": 466,
+    "medium": 1463,
+    "large-v3": 2952,
+    "large-v3-turbo": 1550,
 }
 
 
@@ -35,121 +54,184 @@ class ModelInfo:
 
 
 class ModelManager:
-    """Manages Whisper model downloads, listing, and deletion."""
+    """Manages separately cached faster-whisper and whisper.cpp models."""
 
     def __init__(self, models_dir: Path | None = None) -> None:
         self._models_dir = models_dir or MODELS_DIR
 
-    def list_models(self) -> list[ModelInfo]:
-        """List all supported models and their download status."""
-        models: list[ModelInfo] = []
-        for name in SUPPORTED_WHISPER_MODELS:
-            model_path = self._get_model_path(name)
-            downloaded = model_path is not None and model_path.exists()
-            models.append(
-                ModelInfo(
-                    name=name,
-                    size_mb=MODEL_SIZES.get(name, 0),
-                    downloaded=downloaded,
-                    path=model_path if downloaded else None,
-                )
+    def list_models(self, *, backend: str = FASTER_WHISPER_BACKEND) -> list[ModelInfo]:
+        """List supported models and download status for one backend."""
+        model_sizes = self._model_sizes(backend)
+        return [
+            ModelInfo(
+                name=name,
+                size_mb=model_sizes[name],
+                downloaded=(path := self.get_model_path(name, backend=backend)) is not None,
+                path=path,
             )
-        return models
+            for name in self._supported_models(backend)
+        ]
 
-    def is_downloaded(self, model_name: str) -> bool:
-        """Check if a model is already downloaded."""
-        path = self._get_model_path(model_name)
-        return path is not None and path.exists()
+    def is_downloaded(self, model_name: str, *, backend: str = FASTER_WHISPER_BACKEND) -> bool:
+        """Check whether a supported backend-specific artifact is available."""
+        return self.get_model_path(model_name, backend=backend) is not None
+
+    def get_model_path(
+        self, model_name: str, *, backend: str = FASTER_WHISPER_BACKEND
+    ) -> Path | None:
+        """Return an existing usable artifact path, or ``None`` when absent."""
+        self._validate_model(model_name, backend)
+
+        if backend == WHISPER_CPP_BACKEND:
+            path = self._whisper_cpp_path(model_name)
+            return path if self._is_usable_file(path) else None
+
+        for candidate in self._faster_whisper_candidates(model_name):
+            if self._is_usable_directory(candidate):
+                return candidate
+        return None
 
     def download(
         self,
         model_name: str,
         progress_callback: Callable[[float], None] | None = None,
+        *,
+        backend: str = FASTER_WHISPER_BACKEND,
     ) -> Path:
-        """Download a Whisper model via huggingface_hub.
+        """Download a supported model and return its actual local artifact path."""
+        self._validate_model(model_name, backend)
+        existing = self.get_model_path(model_name, backend=backend)
+        if existing is not None:
+            return existing
 
-        faster-whisper models are hosted on HuggingFace as CTranslate2 conversions.
+        if backend == WHISPER_CPP_BACKEND:
+            return self._download_whisper_cpp(model_name, progress_callback)
+        return self._download_faster_whisper(model_name, progress_callback)
 
-        Args:
-            model_name: Name of the model (e.g., "base", "large-v3-turbo").
-            progress_callback: Optional callback with progress 0.0-1.0.
+    def delete(self, model_name: str, *, backend: str = FASTER_WHISPER_BACKEND) -> bool:
+        """Delete a backend-specific downloaded model, if present."""
+        path = self.get_model_path(model_name, backend=backend)
+        if path is None:
+            logger.warning("Model '%s' not found for backend '%s'", model_name, backend)
+            return False
 
-        Returns:
-            Path to the downloaded model directory.
-        """
-        if model_name not in SUPPORTED_WHISPER_MODELS:
-            raise ValueError(f"Unsupported model: {model_name}")
+        if backend == WHISPER_CPP_BACKEND:
+            path.unlink()
+        else:
+            shutil.rmtree(path)
 
+        logger.info("Deleted model '%s' for backend '%s' at %s", model_name, backend, path)
+        return True
+
+    def get_disk_usage(self) -> int:
+        """Get total disk usage of all downloaded model formats in bytes."""
+        if not self._models_dir.exists():
+            return 0
+        return sum(path.stat().st_size for path in self._models_dir.rglob("*") if path.is_file())
+
+    def _download_faster_whisper(
+        self, model_name: str, progress_callback: Callable[[float], None] | None
+    ) -> Path:
+        """Download a CTranslate2 faster-whisper model using its existing loader."""
         self._models_dir.mkdir(parents=True, exist_ok=True)
-
-        # faster-whisper downloads models from HuggingFace automatically
-        # We just need to trigger a load, which will cache the model
-        logger.info("Downloading model '%s' (this may take a while)...", model_name)
+        logger.info("Downloading faster-whisper model '%s'...", model_name)
 
         try:
             from faster_whisper import WhisperModel
 
-            # This will download the model to the cache directory
             model = WhisperModel(
                 model_name,
                 device="cpu",
                 compute_type="int8",
                 download_root=str(self._models_dir),
             )
-            # Immediately delete the loaded model to free memory
             del model
-
-            logger.info("Model '%s' downloaded successfully", model_name)
-            return self._models_dir / model_name
-
         except Exception:
-            logger.exception("Failed to download model '%s'", model_name)
+            logger.exception("Failed to download faster-whisper model '%s'", model_name)
             raise
 
-    def delete(self, model_name: str) -> bool:
-        """Delete a downloaded model. Returns True if deleted."""
-        path = self._get_model_path(model_name)
-        if path is None or not path.exists():
-            logger.warning("Model '%s' not found", model_name)
-            return False
+        path = self.get_model_path(model_name, backend=FASTER_WHISPER_BACKEND)
+        if path is None:
+            raise RuntimeError(
+                f"faster-whisper reported a successful download for '{model_name}', "
+                "but no usable local model artifact was found"
+            )
+        if progress_callback is not None:
+            progress_callback(1.0)
+        return path
 
-        shutil.rmtree(path)
-        logger.info("Deleted model '%s' at %s", model_name, path)
-        return True
+    def _download_whisper_cpp(
+        self, model_name: str, progress_callback: Callable[[float], None] | None
+    ) -> Path:
+        """Download one official GGML artifact through Hugging Face's atomic cache."""
+        model_dir = self._models_dir / WHISPER_CPP_BACKEND
+        model_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"ggml-{model_name}.bin"
+        logger.info("Downloading whisper.cpp model '%s'...", model_name)
 
-    def get_disk_usage(self) -> int:
-        """Get total disk usage of all downloaded models in bytes."""
-        if not self._models_dir.exists():
-            return 0
+        try:
+            from huggingface_hub import hf_hub_download
 
-        total = 0
-        for path in self._models_dir.rglob("*"):
-            if path.is_file():
-                total += path.stat().st_size
-        return total
+            hf_hub_download(
+                repo_id=WHISPER_CPP_REPOSITORY,
+                filename=filename,
+                local_dir=str(model_dir),
+            )
+        except Exception:
+            logger.exception("Failed to download whisper.cpp model '%s'", model_name)
+            raise
 
-    def _get_model_path(self, model_name: str) -> Path | None:
-        """Get the expected path for a model. Returns None if unknown."""
-        if model_name not in SUPPORTED_WHISPER_MODELS:
-            return None
+        path = self.get_model_path(model_name, backend=WHISPER_CPP_BACKEND)
+        if path is None:
+            raise RuntimeError(
+                f"whisper.cpp download for '{model_name}' completed without a usable GGML file"
+            )
+        if progress_callback is not None:
+            progress_callback(1.0)
+        return path
 
-        # faster-whisper stores models in subdirectories
-        # Check various possible directory names
+    def _supported_models(self, backend: str) -> list[str]:
+        self._validate_backend(backend)
+        if backend == WHISPER_CPP_BACKEND:
+            return SUPPORTED_WHISPER_CPP_MODELS
+        return SUPPORTED_WHISPER_MODELS
+
+    def _model_sizes(self, backend: str) -> dict[str, int]:
+        self._validate_backend(backend)
+        if backend == WHISPER_CPP_BACKEND:
+            return WHISPER_CPP_MODEL_SIZES
+        return MODEL_SIZES
+
+    def _validate_model(self, model_name: str, backend: str) -> None:
+        if model_name not in self._supported_models(backend):
+            raise ValueError(f"Unsupported model '{model_name}' for backend '{backend}'")
+
+    @staticmethod
+    def _validate_backend(backend: str) -> None:
+        if backend not in SUPPORTED_MODEL_BACKENDS:
+            supported = ", ".join(SUPPORTED_MODEL_BACKENDS)
+            raise ValueError(f"Unsupported model backend '{backend}'; expected one of: {supported}")
+
+    def _whisper_cpp_path(self, model_name: str) -> Path:
+        return self._models_dir / WHISPER_CPP_BACKEND / f"ggml-{model_name}.bin"
+
+    def _faster_whisper_candidates(self, model_name: str) -> list[Path]:
         candidates = [
             self._models_dir / model_name,
             self._models_dir / f"faster-whisper-{model_name}",
         ]
-
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-
-        # HuggingFace hub caches models as models--{org}--faster-whisper-{name}
-        # Different models may come from different orgs (Systran, mobiuslabsgmbh, etc.)
         if self._models_dir.exists():
-            pattern = f"*faster-whisper-{model_name}"
-            for child in self._models_dir.iterdir():
-                if child.is_dir() and child.name.endswith(f"faster-whisper-{model_name}"):
-                    return child
+            candidates.extend(
+                child
+                for child in self._models_dir.iterdir()
+                if child.is_dir() and child.name.endswith(f"faster-whisper-{model_name}")
+            )
+        return candidates
 
-        return self._models_dir / model_name
+    @staticmethod
+    def _is_usable_file(path: Path) -> bool:
+        return path.is_file() and path.stat().st_size > 0
+
+    @staticmethod
+    def _is_usable_directory(path: Path) -> bool:
+        return path.is_dir() and any(path.iterdir())

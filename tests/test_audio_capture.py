@@ -28,6 +28,19 @@ class TestAudioCapture:
         assert not capture.is_recording
         assert capture.duration == 0.0
 
+    @patch("linux_whispr.audio.capture.sd.InputStream")
+    def test_start_failure_resets_recording_state(self, input_stream: MagicMock) -> None:
+        stream = input_stream.return_value
+        stream.start.side_effect = RuntimeError("microphone unavailable")
+        capture = AudioCapture(event_bus=EventBus())
+
+        with pytest.raises(RuntimeError, match="microphone unavailable"):
+            capture.start()
+
+        assert not capture.is_recording
+        assert capture._stream is None
+        stream.close.assert_called_once()
+
     def test_stop_without_start_returns_none(self) -> None:
         bus = EventBus()
         capture = AudioCapture(event_bus=bus)

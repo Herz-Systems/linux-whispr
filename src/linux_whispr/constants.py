@@ -57,6 +57,16 @@ SUPPORTED_WHISPER_MODELS = [
     "distil-large-v3",
 ]
 
+# whisper.cpp GGML models supported by the Vulkan-capable local backend.
+SUPPORTED_WHISPER_CPP_MODELS = [
+    "tiny",
+    "base",
+    "small",
+    "medium",
+    "large-v3",
+    "large-v3-turbo",
+]
+
 # Hotkey defaults
 DEFAULT_DICTATION_HOTKEY = "F12"
 DEFAULT_COMMAND_HOTKEY = "<Ctrl><Shift>h"

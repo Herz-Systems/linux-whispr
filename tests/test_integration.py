@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -23,6 +25,7 @@ class TestModuleImports:
             "linux_whispr.stt.base",
             "linux_whispr.stt.faster_whisper",
             "linux_whispr.stt.model_manager",
+            "linux_whispr.stt.whisper_cpp",
             "linux_whispr.stt.openai_api",
             "linux_whispr.stt.groq_api",
             "linux_whispr.ai.base",
@@ -132,3 +135,172 @@ class TestModelManager:
         mm = ModelManager()
         with pytest.raises(ValueError, match="Unsupported"):
             mm.download("nonexistent-model-xyz")
+
+
+class TestSTTFactory:
+    def test_creates_whisper_cpp_backend(self) -> None:
+        from linux_whispr.app import LinuxWhispr
+        from linux_whispr.config import AppConfig
+        from linux_whispr.stt.whisper_cpp import WhisperCppBackend
+
+        config = AppConfig()
+        config.stt.backend = "whisper-cpp"
+        config.stt.model = "small"
+        config.stt.device = "vulkan"
+
+        backend = LinuxWhispr(config)._create_stt_backend()
+        assert isinstance(backend, WhisperCppBackend)
+        assert backend._model_name == "small"
+
+
+class TestDictationStateFailures:
+    def test_error_state_hotkey_starts_explicit_retry(self) -> None:
+        from linux_whispr.app import AppState, LinuxWhispr
+
+        app = LinuxWhispr()
+        app._state = AppState.ERROR
+        app._start_recording = MagicMock()
+
+        app._on_dictation_hotkey()
+
+        app._start_recording.assert_called_once()
+
+    def test_microphone_start_failure_emits_error_and_sets_error_state(self) -> None:
+        from linux_whispr.app import AppState, LinuxWhispr
+        from linux_whispr.events import EventBus
+
+        bus = EventBus()
+        errors: list[str] = []
+        bus.on("app.error", lambda message: errors.append(message))
+        app = LinuxWhispr()
+        app._event_bus = bus
+        app._audio = MagicMock()
+        app._audio.start.side_effect = RuntimeError("microphone unavailable")
+        app._vad = MagicMock()
+
+        app._start_recording()
+
+        assert app.state == AppState.ERROR
+        assert errors == [
+            "Could not start recording. Check the microphone and audio settings."
+        ]
+
+    def test_audio_ready_transitions_to_processing(self) -> None:
+        from linux_whispr.app import AppState, LinuxWhispr
+
+        app = LinuxWhispr()
+        app._state = AppState.RECORDING
+
+        with patch("linux_whispr.app.threading.Thread") as thread:
+            app._on_audio_ready(b"wav", 1.0)
+
+        assert app.state == AppState.PROCESSING
+        thread.return_value.start.assert_called_once()
+
+    def test_model_load_failure_emits_error_and_sets_error_state(self) -> None:
+        from linux_whispr.app import AppState, LinuxWhispr
+        from linux_whispr.events import EventBus
+
+        bus = EventBus()
+        errors: list[str] = []
+        bus.on("app.error", lambda message: errors.append(message))
+        app = LinuxWhispr()
+        app._event_bus = bus
+        app._stt = MagicMock()
+        app._stt.is_loaded = False
+        app._stt.load.side_effect = RuntimeError("model unavailable")
+        app._injector = MagicMock()
+
+        with patch("linux_whispr.platform.notifications.notify"):
+            app._process_audio(b"wav", 1.0)
+
+        assert app.state == AppState.ERROR
+        assert errors == [
+            "Transcription failed. Check the speech model and audio settings."
+        ]
+
+    def test_injection_failure_emits_error_and_returns_to_idle(self) -> None:
+        from types import SimpleNamespace
+
+        from linux_whispr.app import AppState, LinuxWhispr
+        from linux_whispr.events import EventBus
+
+        bus = EventBus()
+        errors: list[str] = []
+        bus.on("app.error", lambda message: errors.append(message))
+        app = LinuxWhispr()
+        app._event_bus = bus
+        app._state = AppState.PROCESSING
+        app._stt = MagicMock()
+        app._stt.is_loaded = True
+        app._stt.transcribe.return_value = SimpleNamespace(text="hello", language="en")
+        app._injector = MagicMock()
+        app._injector.inject.return_value = False
+
+        app._process_audio(b"wav", 1.0)
+
+        assert app.state == AppState.IDLE
+        assert errors == [
+            "Text injection failed. Check input permissions and the active application."
+        ]
+
+    def test_start_emits_idle_only_after_hotkey_and_dashboard_are_ready(self) -> None:
+        from linux_whispr.app import AppState, LinuxWhispr
+        from linux_whispr.events import EventBus
+
+        bus = EventBus()
+        states: list[AppState] = []
+        bus.on("state.change", lambda new_state, **kwargs: states.append(new_state))
+        app = LinuxWhispr()
+        app._event_bus = bus
+        app._hotkey_listener = MagicMock()
+        app._tray = MagicMock()
+
+        with patch.object(app, "_start_web_dashboard") as start_dashboard:
+            app.start()
+
+        app._hotkey_listener.start.assert_called_once()
+        app._tray.start.assert_called_once()
+        start_dashboard.assert_called_once()
+        assert states == [AppState.IDLE]
+
+
+class TestDictionaryCorrectionPipeline:
+    def test_pack_alias_is_corrected_before_injection_without_ai(
+        self, tmp_path: Path
+    ) -> None:
+        from types import SimpleNamespace
+
+        from linux_whispr.app import AppState, LinuxWhispr
+        from linux_whispr.events import EventBus
+        from linux_whispr.features.dictionary import Dictionary
+
+        dictionary = Dictionary(tmp_path / "dict.json")
+        dictionary.set_pack_enabled("coding", True)
+        app = LinuxWhispr()
+        app._event_bus = EventBus()
+        app._state = AppState.PROCESSING
+        app._dictionary = dictionary
+        app._snippets = None
+        app._refinement = None
+        app._adaptive = None
+        app._history = MagicMock()
+        app._stt = MagicMock()
+        app._stt.is_loaded = True
+        app._stt.transcribe.return_value = SimpleNamespace(
+            text="type script", language="en"
+        )
+        app._injector = MagicMock()
+        app._injector.inject.return_value = True
+
+        with patch.object(app, "_get_active_window_name", return_value=None):
+            app._process_audio(b"wav", 1.0)
+
+        app._injector.inject.assert_called_once_with("TypeScript")
+        app._history.add.assert_called_once_with(
+            raw_text="type script",
+            refined_text="TypeScript",
+            duration=1.0,
+            app_context=None,
+            language="en",
+        )

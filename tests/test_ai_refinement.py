@@ -118,6 +118,31 @@ class TestRefinementPipeline:
 
         assert result == "hello world"
 
+    def test_unavailable_backend_emits_error_and_returns_raw_text(self) -> None:
+        bus = EventBus()
+        errors: list[str] = []
+        bus.on("ai.error", lambda message: errors.append(message))
+        mock_backend = MagicMock()
+        mock_backend.is_available.return_value = False
+
+        pipeline = RefinementPipeline(event_bus=bus, backend=mock_backend, enabled=True)
+
+        assert pipeline.refine("hello world") == "hello world"
+        assert errors == ["AI refinement is unavailable. Check the configured AI service."]
+
+    def test_backend_failure_emits_error_and_returns_raw_text(self) -> None:
+        bus = EventBus()
+        errors: list[str] = []
+        bus.on("ai.error", lambda message: errors.append(message))
+        mock_backend = MagicMock()
+        mock_backend.is_available.return_value = True
+        mock_backend.generate.side_effect = RuntimeError("API error")
+
+        pipeline = RefinementPipeline(event_bus=bus, backend=mock_backend, enabled=True)
+
+        assert pipeline.refine("hello world") == "hello world"
+        assert errors == ["AI refinement failed. Check the configured AI service."]
+
     def test_emits_events(self) -> None:
         bus = EventBus()
         events: list[str] = []

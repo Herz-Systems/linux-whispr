@@ -1,20 +1,23 @@
-"""Floating overlay widget (GTK4) — minimal pill indicator at bottom-center."""
+"""Qt floating activity indicator for dictation lifecycle feedback."""
 
 from __future__ import annotations
 
-import logging
 import math
 from enum import Enum, auto
 from typing import TYPE_CHECKING
 
+from PySide6.QtCore import QObject, QRectF, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QColor, QCursor, QGuiApplication, QPainter, QPen
+from PySide6.QtWidgets import QWidget
+
+from linux_whispr.ui.desktop import ensure_application
+
 if TYPE_CHECKING:
     from linux_whispr.events import EventBus
 
-logger = logging.getLogger(__name__)
-
 
 class OverlayState(Enum):
-    """Visual states of the overlay widget."""
+    """Visual states exposed by the recording activity overlay."""
 
     HIDDEN = auto()
     IDLE = auto()
@@ -25,452 +28,399 @@ class OverlayState(Enum):
     COMMAND = auto()
 
 
-# --- Design tokens --------------------------------------------------------- #
-_PILL_HEIGHT = 30
-_PILL_PADDING_H = 14
-_DOT_RADIUS = 4.5
-_CORNER_RADIUS = 15
-_BG_COLOR = (0.08, 0.08, 0.10, 0.82)  # dark semi-transparent
-_FONT_SIZE = 11.0
-_BOTTOM_MARGIN = 48  # px from screen bottom edge
+_PILL_WIDTH = 228
+_PILL_HEIGHT = 42
+_CORNER_RADIUS = 21
+_BOTTOM_MARGIN = 48
+_READY_VISIBLE_MS = 1_400
+_DONE_VISIBLE_MS = 1_200
+_ERROR_VISIBLE_MS = 3_500
 
-_STATE_COLORS: dict[OverlayState, tuple[float, float, float]] = {
-    OverlayState.RECORDING: (0.93, 0.26, 0.26),   # soft red
-    OverlayState.PROCESSING: (0.40, 0.58, 0.96),   # soft blue
-    OverlayState.DONE: (0.30, 0.78, 0.47),         # soft green
-    OverlayState.ERROR: (0.95, 0.55, 0.20),        # orange
-    OverlayState.COMMAND: (0.55, 0.40, 0.95),      # purple
+_STATE_COLORS: dict[OverlayState, QColor] = {
+    OverlayState.IDLE: QColor(91, 190, 122),
+    OverlayState.RECORDING: QColor(238, 79, 81),
+    OverlayState.PROCESSING: QColor(96, 143, 239),
+    OverlayState.DONE: QColor(79, 199, 120),
+    OverlayState.ERROR: QColor(241, 149, 69),
+    OverlayState.COMMAND: QColor(151, 119, 239),
 }
 
 _STATE_LABELS: dict[OverlayState, str] = {
+    OverlayState.IDLE: "Ready",
     OverlayState.RECORDING: "Recording",
-    OverlayState.PROCESSING: "Processing\u2026",   # ellipsis
+    OverlayState.PROCESSING: "Processing…",
     OverlayState.DONE: "Done",
-    OverlayState.ERROR: "Error",
-    OverlayState.COMMAND: "Listening\u2026",
+    OverlayState.ERROR: "Needs attention",
+    OverlayState.COMMAND: "Listening…",
 }
 
 
-class Overlay:
-    """Floating pill-shaped overlay at the bottom-center of the screen.
+class _PillWidget(QWidget):
+    """Non-interactive translucent capsule, deliberately drawn without themes."""
 
-    Shows recording / processing / done state with a colored dot and label.
-    On Wayland: uses gtk4-layer-shell for always-on-top, non-focusable surface.
-    On X11: uses regular window with best-effort positioning.
-
-    Falls back to a no-op if GTK4 is not available.
-    """
-
-    def __init__(self, event_bus: EventBus) -> None:
-        self._event_bus = event_bus
+    def __init__(self) -> None:
+        super().__init__()
         self._state = OverlayState.HIDDEN
-        self._window: object | None = None
-        self._gtk_available = False
-        self._audio_level: float = 0.0
-        self._anim_tick: int = 0
-        self._anim_source_id: int | None = None
-        self._layer_shell = False
-        self._pill_width: int = 0
-        self._x11_hints_applied = False
+        self._audio_level = 0.0
+        self._phase = 0
 
-        self._try_init_gtk()
-
-    def _try_init_gtk(self) -> None:
-        """Try to initialize GTK4. Gracefully degrade if unavailable."""
-        try:
-            import gi
-
-            gi.require_version("Gtk", "4.0")
-            gi.require_version("Adw", "1")
-            from gi.repository import Adw, Gdk, Gtk
-
-            self._gtk_available = True
-            logger.info("GTK4 available for overlay")
-        except (ImportError, ValueError):
-            logger.warning(
-                "GTK4/libadwaita not available. Overlay will be disabled. "
-                "Install PyGObject, GTK4, and libadwaita for overlay support."
-            )
-
-    def setup(self) -> None:
-        """Create the overlay window and register event handlers."""
-        if not self._gtk_available:
-            self._register_events_noop()
-            return
-
-        self._create_window()
-        self._register_events()
-        logger.info("Overlay initialized")
-
-    def _create_window(self) -> None:
-        """Create the GTK4 overlay window."""
-        import gi
-
-        gi.require_version("Gtk", "4.0")
-        from gi.repository import Gdk, Gtk
-
-        # Compute pill width to fit the longest label
-        longest = max(_STATE_LABELS.values(), key=len)
-        char_w = _FONT_SIZE * 0.62
-        self._pill_width = int(
-            _PILL_PADDING_H * 2 + _DOT_RADIUS * 2 + 8 + len(longest) * char_w + 4
+        self.setFixedSize(_PILL_WIDTH, _PILL_HEIGHT)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setWindowFlags(
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.WindowDoesNotAcceptFocus
         )
 
-        # Create a small frameless window
-        self._window = Gtk.Window()
-        self._window.set_title("LinuxWhispr Overlay")
-        self._window.set_default_size(self._pill_width, _PILL_HEIGHT)
-        self._window.set_resizable(False)
-        self._window.set_decorated(False)
-        self._window.set_deletable(False)
-        self._window.set_can_focus(False)
-        self._window.set_focusable(False)
+    def set_visual(self, state: OverlayState, audio_level: float, phase: int) -> None:
+        """Accept the current model values and request one inexpensive repaint."""
+        self._state = state
+        self._audio_level = audio_level
+        self._phase = phase
+        self.update()
 
-        # Try layer shell for Wayland
-        try:
-            gi.require_version("Gtk4LayerShell", "1.0")
-            from gi.repository import Gtk4LayerShell
+    def paintEvent(self, _event: object) -> None:
+        """Paint the compact state pill and only state-derived activity artwork."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(20, 21, 26, 224))
+        painter.drawRoundedRect(QRectF(self.rect()), _CORNER_RADIUS, _CORNER_RADIUS)
 
-            Gtk4LayerShell.init_for_window(self._window)
-            Gtk4LayerShell.set_layer(self._window, Gtk4LayerShell.Layer.OVERLAY)
-            Gtk4LayerShell.set_keyboard_mode(
-                self._window, Gtk4LayerShell.KeyboardMode.NONE
-            )
-            # Anchor to bottom only → horizontally centered by the compositor
-            Gtk4LayerShell.set_anchor(
-                self._window, Gtk4LayerShell.Edge.BOTTOM, True
-            )
-            Gtk4LayerShell.set_margin(
-                self._window, Gtk4LayerShell.Edge.BOTTOM, _BOTTOM_MARGIN
-            )
-            self._layer_shell = True
-            logger.info("Using gtk4-layer-shell for Wayland overlay")
-        except (ImportError, ValueError):
-            logger.debug("gtk4-layer-shell not available, using regular window")
+        state = self._state
+        color = _STATE_COLORS.get(state, QColor(154, 158, 171))
+        center_x, center_y = 27.0, self.height() / 2.0
 
-        # Build the overlay content
-        self._build_ui()
-
-    def _build_ui(self) -> None:
-        """Build the overlay UI components."""
-        if self._window is None:
-            return
-
-        from gi.repository import Gdk, Gtk
-
-        # Single drawing area for the pill
-        self._drawing_area = Gtk.DrawingArea()
-        self._drawing_area.set_content_width(self._pill_width)
-        self._drawing_area.set_content_height(_PILL_HEIGHT)
-        self._drawing_area.set_draw_func(self._draw_pill)
-        self._window.set_child(self._drawing_area)
-
-        # Apply CSS for transparent window background
-        css = b"""
-        window, window * {
-            background-color: transparent;
-            background: none;
-        }
-        """
-        provider = Gtk.CssProvider()
-        provider.load_from_data(css)
-        Gtk.StyleContext.add_provider_for_display(
-            Gdk.Display.get_default(),
-            provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-        )
-
-    # --- Drawing ----------------------------------------------------------- #
-
-    def _draw_pill(
-        self, area: object, cr: object, width: int, height: int
-    ) -> None:
-        """Draw the pill-shaped indicator with dot + label."""
-        if self._state in (OverlayState.HIDDEN, OverlayState.IDLE):
-            return
-
-        dot_color = _STATE_COLORS.get(self._state, (0.5, 0.5, 0.5))
-        label = _STATE_LABELS.get(self._state, "")
-        r, g, b = dot_color
-
-        # --- Pill background (rounded rectangle) ---
-        self._draw_rounded_rect(cr, 0, 0, width, height, _CORNER_RADIUS)
-        cr.set_source_rgba(*_BG_COLOR)
-        cr.fill()
-
-        dot_cx = _PILL_PADDING_H + _DOT_RADIUS
-        dot_cy = height / 2.0
-
-        # --- State-specific dot / icon ---
-        if self._state == OverlayState.RECORDING:
-            # Pulsing glow halo
-            pulse = 0.5 + 0.5 * math.sin(self._anim_tick * 0.15)
-            glow_r = _DOT_RADIUS + 3.0 * pulse
-            cr.arc(dot_cx, dot_cy, glow_r, 0, 2 * math.pi)
-            cr.set_source_rgba(r, g, b, 0.22 * pulse)
-            cr.fill()
-            # Solid dot
-            cr.arc(dot_cx, dot_cy, _DOT_RADIUS, 0, 2 * math.pi)
-            cr.set_source_rgba(r, g, b, 1.0)
-            cr.fill()
-
-        elif self._state == OverlayState.PROCESSING:
-            # Three orbiting dots (spinner)
-            angle_base = self._anim_tick * 0.10
-            for i in range(3):
-                a = angle_base + i * (2 * math.pi / 3)
-                ox = math.cos(a) * (_DOT_RADIUS * 0.85)
-                oy = math.sin(a) * (_DOT_RADIUS * 0.85)
-                alpha = 0.30 + 0.70 * ((i + 1) / 3)
-                cr.arc(dot_cx + ox, dot_cy + oy, 2.0, 0, 2 * math.pi)
-                cr.set_source_rgba(r, g, b, alpha)
-                cr.fill()
-
-        elif self._state == OverlayState.DONE:
-            # Small checkmark icon
-            cr.set_line_width(2.0)
-            cr.set_line_cap(1)   # CAIRO_LINE_CAP_ROUND
-            cr.set_line_join(1)  # CAIRO_LINE_JOIN_ROUND
-            cr.move_to(dot_cx - 4, dot_cy)
-            cr.line_to(dot_cx - 1, dot_cy + 3)
-            cr.line_to(dot_cx + 4, dot_cy - 3)
-            cr.set_source_rgba(r, g, b, 1.0)
-            cr.stroke()
-
+        if state == OverlayState.RECORDING:
+            self._paint_audio_bars(painter, color, center_x, center_y)
+        elif state == OverlayState.PROCESSING:
+            self._paint_spinner(painter, color, center_x, center_y)
+        elif state == OverlayState.DONE:
+            self._paint_check(painter, color, center_x, center_y)
         else:
-            # Regular solid dot (ERROR, COMMAND, etc.)
-            cr.arc(dot_cx, dot_cy, _DOT_RADIUS, 0, 2 * math.pi)
-            cr.set_source_rgba(r, g, b, 1.0)
-            cr.fill()
+            painter.setBrush(color)
+            painter.drawEllipse(QRectF(center_x - 5, center_y - 5, 10, 10))
 
-        # --- Label text ---
-        text_x = dot_cx + _DOT_RADIUS + 8
-        cr.select_font_face("sans-serif", 0, 0)  # normal slant, normal weight
-        cr.set_font_size(_FONT_SIZE)
-        cr.set_source_rgba(0.92, 0.92, 0.94, 0.92)
-        extents = cr.text_extents(label)
-        text_y = height / 2.0 + extents.height / 2.0
-        cr.move_to(text_x, text_y)
-        cr.show_text(label)
+        label = _STATE_LABELS.get(state, "")
+        painter.setPen(QColor(239, 240, 244, 235))
+        painter.drawText(
+            QRectF(52, 0, self.width() - 62, self.height()),
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            label,
+        )
+
+    def _paint_audio_bars(
+        self, painter: QPainter, color: QColor, center_x: float, center_y: float
+    ) -> None:
+        """Draw bars from the latest measured input level, not a synthetic pulse."""
+        level = self._audio_level
+        baseline = 4.0
+        for index, multiplier in enumerate((0.52, 0.82, 1.0, 0.70, 0.46)):
+            height = baseline + level * 17.0 * multiplier
+            x = center_x - 10.0 + index * 5.0
+            bar_color = QColor(color)
+            bar_color.setAlpha(135 + int(level * 120))
+            painter.setBrush(bar_color)
+            painter.drawRoundedRect(QRectF(x, center_y - height / 2, 3, height), 1.5, 1.5)
+
+    def _paint_spinner(
+        self, painter: QPainter, color: QColor, center_x: float, center_y: float
+    ) -> None:
+        """Paint a processing spinner; its phase advances only while processing."""
+        for index in range(8):
+            angle = (self._phase * 0.24) + index * (math.tau / 8)
+            alpha = 65 + int(190 * (index + 1) / 8)
+            dot_color = QColor(color)
+            dot_color.setAlpha(alpha)
+            painter.setBrush(dot_color)
+            x = center_x + math.cos(angle) * 7.0
+            y = center_y + math.sin(angle) * 7.0
+            painter.drawEllipse(QRectF(x - 2, y - 2, 4, 4))
 
     @staticmethod
-    def _draw_rounded_rect(
-        cr: object, x: float, y: float, w: float, h: float, r: float
+    def _paint_check(
+        painter: QPainter, color: QColor, center_x: float, center_y: float
     ) -> None:
-        """Draw a rounded-rectangle path (does not fill or stroke)."""
-        cr.new_sub_path()
-        cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
-        cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
-        cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
-        cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
-        cr.close_path()
+        pen = QPen(color, 2.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.drawLine(int(center_x - 6), int(center_y), int(center_x - 1), int(center_y + 5))
+        painter.drawLine(
+            int(center_x - 1), int(center_y + 5), int(center_x + 8), int(center_y - 5)
+        )
 
-    # --- Animation --------------------------------------------------------- #
 
-    def _start_animation(self) -> None:
-        """Start the ~30 fps animation tick for pulse / spinner effects."""
-        if self._anim_source_id is not None or not self._gtk_available:
+class _OverlayBridge(QObject):
+    """Queue event-bus notifications into the QApplication's GUI thread."""
+
+    application_state = Signal(object)
+    audio_level = Signal(object)
+    completed = Signal()
+    failed = Signal()
+    command_started = Signal()
+    show_requested = Signal()
+    hide_requested = Signal()
+    destroy_requested = Signal()
+
+
+class Overlay(QObject):
+    """Show transient, non-activating dictation feedback above the desktop."""
+
+    def __init__(self, event_bus: EventBus) -> None:
+        super().__init__()
+        self._event_bus = event_bus
+        self._state = OverlayState.HIDDEN
+        self._window: _PillWidget | None = None
+        self._bridge: _OverlayBridge | None = None
+        self._animation_timer: QTimer | None = None
+        self._hide_timer: QTimer | None = None
+        self._scheduled_state: OverlayState | None = None
+        self._scheduled_attempt = 0
+        self._scheduled_token = 0
+        self._audio_level = 0.0
+        self._animation_phase = 0
+        self._attempt = 0
+        self._error_attempt: int | None = None
+        self._transition_token = 0
+        self._seen_application_state = False
+        self._subscriptions: list[tuple[str, object]] = []
+        self._destroyed = False
+
+    def setup(self) -> None:
+        """Create the Qt window in the main thread and attach event subscriptions."""
+        if self._destroyed or self._window is not None:
             return
 
-        from gi.repository import GLib
+        ensure_application()
+        self._bridge = _OverlayBridge()
+        self._bridge.application_state.connect(self._apply_application_state)
+        self._bridge.audio_level.connect(self._apply_audio_level)
+        self._bridge.completed.connect(self._apply_done)
+        self._bridge.failed.connect(self._apply_error)
+        self._bridge.command_started.connect(self._apply_command_started)
+        self._bridge.show_requested.connect(self._show_window)
+        self._bridge.hide_requested.connect(self._hide_window)
+        self._bridge.destroy_requested.connect(self._destroy_window)
 
-        self._anim_tick = 0
-        self._anim_source_id = GLib.timeout_add(33, self._on_anim_tick)
-
-    def _stop_animation(self) -> None:
-        """Stop the animation tick."""
-        if self._anim_source_id is not None:
-            from gi.repository import GLib
-
-            GLib.source_remove(self._anim_source_id)
-            self._anim_source_id = None
-
-    def _on_anim_tick(self) -> bool:
-        """Animation frame callback (GLib timeout)."""
-        self._anim_tick += 1
-        if hasattr(self, "_drawing_area"):
-            self._drawing_area.queue_draw()
-        # Keep running while in an animated state
-        if self._state in (OverlayState.RECORDING, OverlayState.PROCESSING):
-            return True
-        # Stop the timer
-        self._anim_source_id = None
-        return False
-
-    # --- Event bus handlers ------------------------------------------------ #
+        self._window = _PillWidget()
+        self._animation_timer = QTimer(self._window)
+        self._animation_timer.setInterval(33)
+        self._animation_timer.timeout.connect(self._advance_animation)
+        self._hide_timer = QTimer(self._window)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.timeout.connect(self._on_hide_timeout)
+        self._register_events()
 
     def _register_events(self) -> None:
-        """Register event bus handlers for state updates."""
-        self._event_bus.on("hotkey.dictation.start", self._on_recording_start)
-        self._event_bus.on("hotkey.dictation.stop", self._on_recording_stop)
-        self._event_bus.on("hotkey.command.start", self._on_command_start)
-        self._event_bus.on("stt.started", self._on_processing)
-        self._event_bus.on("inject.complete", self._on_done)
-        self._event_bus.on("inject.error", self._on_error)
-        self._event_bus.on("audio.level", self._on_audio_level)
+        self._subscribe("state.change", self._on_state_change)
+        self._subscribe("audio.level", self._on_audio_level)
+        self._subscribe("inject.complete", self._on_done)
+        self._subscribe("inject.error", self._on_error)
+        self._subscribe("app.error", self._on_error)
+        self._subscribe("ai.error", self._on_error)
+        self._subscribe("hotkey.command.start", self._on_command_start)
 
-    def _register_events_noop(self) -> None:
-        """Register logging-only event handlers when GTK is unavailable."""
-        self._event_bus.on(
-            "hotkey.dictation.start",
-            lambda **kw: logger.info("[Overlay] Recording started"),
-        )
-        self._event_bus.on(
-            "stt.started",
-            lambda **kw: logger.info("[Overlay] Processing..."),
-        )
-        self._event_bus.on(
-            "inject.complete",
-            lambda **kw: logger.info("[Overlay] Done ✓"),
-        )
-        self._event_bus.on(
-            "inject.error",
-            lambda **kw: logger.info("[Overlay] Error: %s", kw.get("error", "")),
-        )
+    def _subscribe(self, event: str, handler: object) -> None:
+        self._event_bus.on(event, handler)  # type: ignore[arg-type]
+        self._subscriptions.append((event, handler))
 
-    def _set_state(self, state: OverlayState) -> None:
-        """Update visual state and redraw."""
-        self._state = state
-        if self._gtk_available and hasattr(self, "_drawing_area"):
-            from gi.repository import GLib
+    def _unsubscribe_all(self) -> None:
+        for event, handler in self._subscriptions:
+            self._event_bus.off(event, handler)  # type: ignore[arg-type]
+        self._subscriptions.clear()
 
-            GLib.idle_add(self._drawing_area.queue_draw)
+    # Event-bus callbacks do no GUI work, so they are safe on capture/STT threads.
+    def _on_state_change(self, new_state: object = None, **_kwargs: object) -> None:
+        if self._bridge is not None and not self._destroyed:
+            self._bridge.application_state.emit(new_state)
 
-    def _on_recording_start(self, **kwargs: object) -> None:
-        self._set_state(OverlayState.RECORDING)
-        self.show()
-        self._start_animation()
+    def _on_audio_level(self, level: object = 0.0, **_kwargs: object) -> None:
+        if self._bridge is not None and not self._destroyed:
+            self._bridge.audio_level.emit(level)
 
-    def _on_recording_stop(self, **kwargs: object) -> None:
-        pass  # Will transition to PROCESSING via stt.started
+    def _on_done(self, **_kwargs: object) -> None:
+        if self._bridge is not None and not self._destroyed:
+            self._bridge.completed.emit()
 
-    def _on_command_start(self, **kwargs: object) -> None:
-        self._set_state(OverlayState.COMMAND)
-        self.show()
+    def _on_error(self, **_kwargs: object) -> None:
+        if self._bridge is not None and not self._destroyed:
+            self._bridge.failed.emit()
 
-    def _on_processing(self, **kwargs: object) -> None:
-        self._set_state(OverlayState.PROCESSING)
-        self._start_animation()
+    def _on_command_start(self, **_kwargs: object) -> None:
+        if self._bridge is not None and not self._destroyed:
+            self._bridge.command_started.emit()
 
-    def _on_done(self, **kwargs: object) -> None:
-        self._stop_animation()
-        self._set_state(OverlayState.DONE)
-        if self._gtk_available:
-            from gi.repository import GLib
+    @Slot(object)
+    def _apply_application_state(self, application_state: object) -> None:
+        if self._destroyed:
+            return
+        state_name = getattr(application_state, "name", str(application_state)).upper()
+        initial_state = not self._seen_application_state
+        self._seen_application_state = True
 
-            GLib.timeout_add(1200, self._return_to_idle)
-        else:
-            self._return_to_idle()
+        if state_name == "RECORDING":
+            self._attempt += 1
+            self._error_attempt = None
+            self._set_visual(OverlayState.RECORDING)
+        elif state_name == "PROCESSING":
+            self._set_visual(OverlayState.PROCESSING)
+        elif state_name == "ERROR":
+            self._apply_error()
+        elif state_name == "IDLE":
+            if initial_state:
+                self._set_visual(OverlayState.IDLE)
+                self._schedule_hide(OverlayState.IDLE, _READY_VISIBLE_MS)
+            elif self._state not in (OverlayState.DONE, OverlayState.ERROR):
+                self._set_visual(OverlayState.HIDDEN)
 
-    def _on_error(self, **kwargs: object) -> None:
-        self._stop_animation()
-        self._set_state(OverlayState.ERROR)
-        if self._gtk_available:
-            from gi.repository import GLib
-
-            GLib.timeout_add(3000, self._return_to_idle)
-
-    def _on_audio_level(self, level: float = 0.0, **kwargs: object) -> None:
-        self._audio_level = level
-
-    def _return_to_idle(self) -> bool:
-        self._set_state(OverlayState.HIDDEN)
-        self.hide()
-        return False  # Don't repeat GLib timeout
-
-    # --- X11 overlay hints ------------------------------------------------- #
-
-    def _apply_x11_overlay_hints(self) -> bool:
-        """Make the overlay always-on-top and position it at bottom-center on X11.
-
-        Uses python-xlib to send _NET_WM_STATE client messages and set
-        _NET_WM_WINDOW_TYPE to NOTIFICATION.  No-op when layer-shell is active.
-        """
-        if self._layer_shell or self._window is None:
-            return False
-
+    @Slot(object)
+    def _apply_audio_level(self, raw_level: object) -> None:
+        if self._destroyed:
+            return
         try:
-            import gi
+            level = float(raw_level)
+        except (TypeError, ValueError):
+            level = 0.0
+        if not math.isfinite(level):
+            level = 0.0
+        level = max(0.0, min(1.0, level))
+        self._audio_level += (level - self._audio_level) * 0.35
+        self._redraw()
 
-            gi.require_version("GdkX11", "4.0")
-            from gi.repository import GdkX11
+    @Slot()
+    def _apply_done(self) -> None:
+        if self._destroyed or self._error_attempt == self._attempt:
+            return
+        self._set_visual(OverlayState.DONE)
+        self._schedule_hide(OverlayState.DONE, _DONE_VISIBLE_MS)
 
-            surface = self._window.get_surface()
-            if surface is None or not isinstance(surface, GdkX11.X11Surface):
-                return False
+    @Slot()
+    def _apply_error(self) -> None:
+        if self._destroyed:
+            return
+        self._error_attempt = self._attempt
+        self._set_visual(OverlayState.ERROR)
+        self._schedule_hide(OverlayState.ERROR, _ERROR_VISIBLE_MS)
 
-            xid = surface.get_xid()
+    @Slot()
+    def _apply_command_started(self) -> None:
+        if not self._destroyed and self._state not in (OverlayState.ERROR, OverlayState.RECORDING):
+            self._set_visual(OverlayState.COMMAND)
 
-            from Xlib import X, Xatom
-            from Xlib import display as xdisplay
-            from Xlib.protocol import event as xevent
+    def _set_visual(self, state: OverlayState) -> None:
+        self._cancel_scheduled_hide()
+        self._state = state
+        if state in (OverlayState.RECORDING, OverlayState.PROCESSING):
+            assert self._animation_timer is not None
+            if not self._animation_timer.isActive():
+                self._animation_timer.start()
+        elif self._animation_timer is not None:
+            self._animation_timer.stop()
 
-            d = xdisplay.Display()
-            root = d.screen().root
-            w = d.create_resource_object("window", xid)
+        if state == OverlayState.HIDDEN:
+            self._hide_window()
+            return
+        self._show_window()
+        self._redraw()
 
-            # --- Window type: NOTIFICATION (skip taskbar, no focus) ---
-            wm_type = d.intern_atom("_NET_WM_WINDOW_TYPE")
-            type_notif = d.intern_atom("_NET_WM_WINDOW_TYPE_NOTIFICATION")
-            w.change_property(wm_type, Xatom.ATOM, 32, [type_notif])
+    def _schedule_hide(self, expected_state: OverlayState, milliseconds: int) -> None:
+        assert self._hide_timer is not None
+        self._transition_token += 1
+        self._scheduled_token = self._transition_token
+        self._scheduled_state = expected_state
+        self._scheduled_attempt = self._attempt
+        self._hide_timer.stop()
+        self._hide_timer.start(milliseconds)
 
-            # --- Position at bottom-center ---
-            screen = d.screen()
-            x = (screen.width_in_pixels - self._pill_width) // 2
-            y = screen.height_in_pixels - _PILL_HEIGHT - _BOTTOM_MARGIN
-            w.configure(x=x, y=y)
+    def _cancel_scheduled_hide(self) -> None:
+        self._transition_token += 1
+        if self._hide_timer is not None:
+            self._hide_timer.stop()
 
-            # --- Always-on-top + skip taskbar/pager via _NET_WM_STATE ---
-            wm_state = d.intern_atom("_NET_WM_STATE")
-            _ADD = 1  # _NET_WM_STATE_ADD
-            for name in (
-                "_NET_WM_STATE_ABOVE",
-                "_NET_WM_STATE_SKIP_TASKBAR",
-                "_NET_WM_STATE_SKIP_PAGER",
-            ):
-                atom = d.intern_atom(name)
-                ev = xevent.ClientMessage(
-                    window=w,
-                    client_type=wm_state,
-                    data=(32, [_ADD, atom, 0, 1, 0]),
-                )
-                root.send_event(
-                    ev,
-                    event_mask=X.SubstructureRedirectMask | X.SubstructureNotifyMask,
-                )
+    def _hide_if_current(
+        self, token: int, expected_state: OverlayState, attempt: int
+    ) -> None:
+        if (
+            not self._destroyed
+            and token == self._transition_token
+            and self._state == expected_state
+            and self._attempt == attempt
+        ):
+            self._set_visual(OverlayState.HIDDEN)
 
-            d.flush()
-            d.close()
-            self._x11_hints_applied = True
-            logger.debug("X11 overlay hints applied (xid=%d)", xid)
-        except Exception:
-            logger.debug("Could not apply X11 overlay hints", exc_info=True)
+    @Slot()
+    def _on_hide_timeout(self) -> None:
+        if self._scheduled_state is not None:
+            self._hide_if_current(
+                self._scheduled_token, self._scheduled_state, self._scheduled_attempt
+            )
 
-        return False  # Don't repeat GLib timeout
+    @Slot()
+    def _advance_animation(self) -> None:
+        if self._state not in (OverlayState.RECORDING, OverlayState.PROCESSING):
+            assert self._animation_timer is not None
+            self._animation_timer.stop()
+            return
+        self._animation_phase += 1
+        self._redraw()
 
-    # --- Show / hide / destroy --------------------------------------------- #
+    def _redraw(self) -> None:
+        if self._window is not None:
+            self._window.set_visual(self._state, self._audio_level, self._animation_phase)
+
+    @Slot()
+    def _show_window(self) -> None:
+        if self._destroyed or self._window is None:
+            return
+        self._position_on_active_screen()
+        self._window.show()
+        self._redraw()
+
+    def _position_on_active_screen(self) -> None:
+        assert self._window is not None
+        screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        self._window.move(
+            available.x() + (available.width() - self._window.width()) // 2,
+            available.y() + available.height() - self._window.height() - _BOTTOM_MARGIN,
+        )
+
+    @Slot()
+    def _hide_window(self) -> None:
+        if self._window is not None:
+            self._window.hide()
 
     def show(self) -> None:
-        """Show the overlay window."""
-        if self._window is not None:
-            from gi.repository import GLib
-
-            GLib.idle_add(self._window.present)
-            if not self._layer_shell and not self._x11_hints_applied:
-                GLib.timeout_add(100, self._apply_x11_overlay_hints)
+        """Queue a non-activating show request without changing the visual state."""
+        if self._bridge is not None and not self._destroyed:
+            self._bridge.show_requested.emit()
 
     def hide(self) -> None:
-        """Hide the overlay window."""
-        if self._window is not None:
-            from gi.repository import GLib
-
-            GLib.idle_add(self._window.hide)
+        """Queue a hide request without retaining a focusable window."""
+        if self._bridge is not None and not self._destroyed:
+            self._bridge.hide_requested.emit()
 
     def destroy(self) -> None:
-        """Destroy the overlay window."""
-        self._stop_animation()
-        if self._window is not None:
-            from gi.repository import GLib
+        """Unsubscribe and queue teardown so shutdown leaves no native window behind."""
+        if self._destroyed:
+            return
+        self._destroyed = True
+        self._unsubscribe_all()
+        if self._bridge is not None:
+            self._bridge.destroy_requested.emit()
 
-            GLib.idle_add(self._window.destroy)
+    @Slot()
+    def _destroy_window(self) -> None:
+        if self._animation_timer is not None:
+            self._animation_timer.stop()
+        if self._hide_timer is not None:
+            self._hide_timer.stop()
+        if self._window is not None:
+            self._window.close()
+            self._window.deleteLater()
             self._window = None

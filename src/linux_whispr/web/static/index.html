@@ -1,837 +1,2412 @@
-<!DOCTYPE html>
-<html lang="en" x-data="app()" x-init="init()" :class="darkMode ? 'dark' : ''">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LinuxWhispr Dashboard</title>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        brand: { 50: '#f5f3ff', 100: '#ede9fe', 200: '#ddd6fe', 300: '#c4b5fd', 400: '#a78bfa', 500: '#8b5cf6', 600: '#7c3aed', 700: '#6d28d9', 800: '#5b21b6', 900: '#4c1d95' }
-                    }
-                }
-            }
-        }
-    </script>
-    <style>
-        [x-cloak] { display: none !important; }
-        .fade-in { animation: fadeIn 0.2s ease-in; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes pulse-dot { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: 0.7; } }
-        .pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
-        .sidebar-item { transition: all 0.15s ease; }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
-    </style>
-</head>
-<body class="bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 min-h-screen">
+<!doctype html>
+<html
+  lang="en"
+  x-data="app()"
+  :lang="localeTag"
+  :class="darkMode ? 'dark' : ''"
+>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#2461b5" />
+    <title>LinuxWhispr</title>
+    <link rel="icon" href="/static/brand.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/app.css" />
+    <script defer src="/static/i18n.js"></script>
+    <script defer src="/static/app.js"></script>
+    <script defer src="/static/vendor/alpine.min.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content" x-text="t('Skip to content')"
+      >Skip to content</a
+    >
 
-<!-- Layout -->
-<div class="flex min-h-screen">
+    <div class="app-shell" @keydown.escape.window="mobileNavOpen = false">
+      <div
+        class="sidebar-backdrop"
+        :class="{ 'is-visible': mobileNavOpen }"
+        @click="mobileNavOpen = false"
+        aria-hidden="true"
+      ></div>
 
-    <!-- Sidebar -->
-    <aside class="w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 flex flex-col fixed h-full z-10">
-        <!-- Logo -->
-        <div class="p-5 border-b border-gray-200 dark:border-gray-800">
-            <div class="flex items-center gap-3">
-                <div class="w-9 h-9 bg-brand-600 rounded-lg flex items-center justify-center">
-                    <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
-                    </svg>
-                </div>
-                <div>
-                    <h1 class="font-bold text-sm">LinuxWhispr</h1>
-                    <p class="text-xs text-gray-500 dark:text-gray-400" x-text="'v' + status.version"></p>
-                </div>
-            </div>
+      <aside
+        id="primary-navigation"
+        class="sidebar"
+        :class="{ 'is-open': mobileNavOpen }"
+        :aria-label="t('Main navigation')"
+      >
+        <div class="brand">
+          <img class="brand-logo" src="/static/brand.svg" alt="" />
+          <div>
+            <p class="brand-name">LinuxWhispr</p>
+            <p
+              class="brand-caption"
+              x-text="status.version ? t('Version {version}', { version: status.version }) : t('Local panel')"
+            >
+              Local panel
+            </p>
+          </div>
+          <button
+            class="icon-button mobile-menu-button"
+            type="button"
+            @click="mobileNavOpen = false"
+            :aria-label="t('Close menu')"
+          >
+            <span class="icon icon-x" aria-hidden="true"></span>
+          </button>
         </div>
 
-        <!-- Navigation -->
-        <nav class="flex-1 p-3 space-y-1">
-            <template x-for="item in navItems" :key="item.id">
-                <button
-                    @click="currentPage = item.id"
-                    :class="currentPage === item.id
-                        ? 'bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400 border-brand-200 dark:border-brand-800'
-                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 border-transparent'"
-                    class="sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium border">
-                    <span x-html="item.icon" class="w-5 h-5 flex-shrink-0"></span>
-                    <span x-text="item.label"></span>
-                </button>
-            </template>
+        <nav class="nav-list" :aria-label="t('Sections')">
+          <template x-for="item in navItems" :key="item.id">
+            <button
+              class="nav-item"
+              :class="{ 'is-active': currentPage === item.id }"
+              type="button"
+              @click="navigate(item.id)"
+              :aria-current="currentPage === item.id ? 'page' : null"
+            >
+              <span :class="'icon icon-' + item.icon" aria-hidden="true"></span>
+              <span class="nav-label" x-text="t(item.label)"></span>
+            </button>
+          </template>
         </nav>
 
-        <!-- Dark mode toggle -->
-        <div class="p-3 border-t border-gray-200 dark:border-gray-800">
-            <button @click="darkMode = !darkMode; localStorage.setItem('darkMode', darkMode)"
-                class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
-                <svg x-show="!darkMode" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
-                <svg x-show="darkMode" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-                <span x-text="darkMode ? 'Modo Claro' : 'Modo Escuro'"></span>
-            </button>
+        <div class="sidebar-footer">
+          <button
+            class="button button-quiet theme-button"
+            type="button"
+            @click="toggleTheme()"
+          >
+            <span
+              class="icon"
+              :class="darkMode ? 'icon-sun' : 'icon-moon'"
+              aria-hidden="true"
+            ></span>
+            <span x-text="darkMode ? t('Use light theme') : t('Use dark theme')"
+              >Use dark theme</span
+            >
+          </button>
+          <p
+            class="sidebar-note"
+            x-text="t('Dictation status is shown in this dashboard.')"
+          >
+            Dictation status is shown in this dashboard.
+          </p>
         </div>
-    </aside>
+      </aside>
 
-    <!-- Main content -->
-    <main class="flex-1 ml-64 p-8">
-
-        <!-- Dashboard Page -->
-        <div x-show="currentPage === 'dashboard'" x-cloak class="fade-in">
-            <h2 class="text-2xl font-bold mb-6">Dashboard</h2>
-
-            <!-- Status Card -->
-            <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-6 mb-6">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-4">
-                        <div class="w-3 h-3 rounded-full bg-green-500 pulse-dot"></div>
-                        <div>
-                            <p class="font-semibold" x-text="status.status === 'running' ? 'Ativo' : 'Inativo'"></p>
-                            <p class="text-sm text-gray-500 dark:text-gray-400">LinuxWhispr Daemon</p>
-                        </div>
-                    </div>
-                    <span class="px-3 py-1 bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400 rounded-full text-xs font-medium" x-text="'v' + status.version"></span>
-                </div>
-            </div>
-
-            <!-- Stats Cards -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
-                    <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">Transcrições Hoje</p>
-                    <p class="text-3xl font-bold text-brand-600" x-text="stats.today_entries || 0"></p>
-                </div>
-                <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
-                    <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">Palavras Hoje</p>
-                    <p class="text-3xl font-bold text-brand-600" x-text="stats.today_words || 0"></p>
-                </div>
-                <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
-                    <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">Total de Transcrições</p>
-                    <p class="text-3xl font-bold text-brand-600" x-text="stats.total_entries || 0"></p>
-                </div>
-                <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
-                    <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">Duração Média</p>
-                    <p class="text-3xl font-bold text-brand-600" x-text="(stats.avg_duration || 0) + 's'"></p>
-                </div>
-            </div>
-
-            <!-- Recent Transcriptions -->
-            <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800">
-                <div class="p-5 border-b border-gray-200 dark:border-gray-800">
-                    <h3 class="font-semibold">Transcrições Recentes</h3>
-                </div>
-                <div class="divide-y divide-gray-100 dark:divide-gray-800">
-                    <template x-for="entry in recentHistory" :key="entry.id">
-                        <div class="p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                            <p class="text-sm mb-1" x-text="entry.raw_text.substring(0, 120) + (entry.raw_text.length > 120 ? '...' : '')"></p>
-                            <div class="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-                                <span x-text="formatDate(entry.timestamp)"></span>
-                                <span>&middot;</span>
-                                <span x-text="entry.word_count + ' palavras'"></span>
-                                <span x-show="entry.app_context">&middot;</span>
-                                <span x-show="entry.app_context" x-text="entry.app_context"></span>
-                            </div>
-                        </div>
-                    </template>
-                    <div x-show="recentHistory.length === 0" class="p-8 text-center text-gray-400">
-                        Nenhuma transcrição ainda
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Config Page -->
-        <div x-show="currentPage === 'config'" x-cloak class="fade-in">
-            <h2 class="text-2xl font-bold mb-6">Configurações</h2>
-
-            <!-- Config sections -->
-            <div class="space-y-4">
-                <!-- STT Section -->
-                <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800">
-                    <button @click="configOpen.stt = !configOpen.stt" class="w-full flex items-center justify-between p-5">
-                        <div class="flex items-center gap-3">
-                            <svg class="w-5 h-5 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
-                            <span class="font-semibold">Transcrição (STT)</span>
-                        </div>
-                        <svg :class="configOpen.stt ? 'rotate-180' : ''" class="w-5 h-5 text-gray-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
-                    </button>
-                    <div x-show="configOpen.stt" x-collapse class="px-5 pb-5 space-y-4 border-t border-gray-100 dark:border-gray-800 pt-4">
-                        <div>
-                            <label class="block text-sm font-medium mb-1.5">Backend STT</label>
-                            <select x-model="config.stt.backend" @change="saveConfig()" class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                                <option value="faster-whisper">faster-whisper (Local)</option>
-                                <option value="openai">OpenAI Whisper API</option>
-                                <option value="groq">Groq Whisper API</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1.5">Modelo Whisper</label>
-                            <select x-model="config.stt.model" @change="saveConfig()" class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                                <option value="tiny">tiny (~75MB)</option>
-                                <option value="base">base (~150MB)</option>
-                                <option value="small">small (~500MB)</option>
-                                <option value="medium">medium (~1.5GB)</option>
-                                <option value="large-v3">large-v3 (~3.1GB)</option>
-                                <option value="large-v3-turbo">large-v3-turbo (~1.6GB)</option>
-                                <option value="distil-large-v3">distil-large-v3 (~1.5GB)</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1.5">Idioma</label>
-                            <select x-model="config.stt.language" @change="saveConfig()" class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                                <option value="auto">Auto-detectar</option>
-                                <option value="pt">Português</option>
-                                <option value="en">English</option>
-                                <option value="es">Español</option>
-                                <option value="fr">Français</option>
-                                <option value="de">Deutsch</option>
-                                <option value="it">Italiano</option>
-                                <option value="ja">日本語</option>
-                                <option value="zh">中文</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1.5">Dispositivo de Computação</label>
-                            <select x-model="config.stt.device" @change="saveConfig()" class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                                <option value="auto">Auto</option>
-                                <option value="cpu">CPU</option>
-                                <option value="cuda">CUDA (GPU)</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1.5">Tipo de Computação</label>
-                            <select x-model="config.stt.compute_type" @change="saveConfig()" class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                                <option value="auto">Auto</option>
-                                <option value="float16">float16</option>
-                                <option value="int8">int8</option>
-                                <option value="float32">float32</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Audio Section -->
-                <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800">
-                    <button @click="configOpen.audio = !configOpen.audio" class="w-full flex items-center justify-between p-5">
-                        <div class="flex items-center gap-3">
-                            <svg class="w-5 h-5 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>
-                            <span class="font-semibold">Áudio</span>
-                        </div>
-                        <svg :class="configOpen.audio ? 'rotate-180' : ''" class="w-5 h-5 text-gray-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
-                    </button>
-                    <div x-show="configOpen.audio" x-collapse class="px-5 pb-5 space-y-4 border-t border-gray-100 dark:border-gray-800 pt-4">
-                        <div>
-                            <label class="block text-sm font-medium mb-1.5">Duração do Silêncio (s)</label>
-                            <input type="range" min="0.5" max="10" step="0.5" x-model="config.audio.silence_duration" @change="saveConfig()" class="w-full">
-                            <span class="text-sm text-gray-500" x-text="config.audio.silence_duration + 's'"></span>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1.5">Sensibilidade VAD</label>
-                            <input type="range" min="0.1" max="0.9" step="0.05" x-model="config.audio.silence_threshold" @change="saveConfig()" class="w-full">
-                            <span class="text-sm text-gray-500" x-text="config.audio.silence_threshold"></span>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm font-medium">Modo Sussurro</p>
-                                <p class="text-xs text-gray-500">Aumentar ganho para ambientes silenciosos</p>
-                            </div>
-                            <button @click="config.audio.whisper_mode = !config.audio.whisper_mode; saveConfig()"
-                                :class="config.audio.whisper_mode ? 'bg-brand-600' : 'bg-gray-300 dark:bg-gray-600'"
-                                class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors">
-                                <span :class="config.audio.whisper_mode ? 'translate-x-6' : 'translate-x-1'" class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"></span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- AI Section -->
-                <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800">
-                    <button @click="configOpen.ai = !configOpen.ai" class="w-full flex items-center justify-between p-5">
-                        <div class="flex items-center gap-3">
-                            <svg class="w-5 h-5 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5"/></svg>
-                            <span class="font-semibold">Refinamento AI</span>
-                        </div>
-                        <svg :class="configOpen.ai ? 'rotate-180' : ''" class="w-5 h-5 text-gray-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
-                    </button>
-                    <div x-show="configOpen.ai" x-collapse class="px-5 pb-5 space-y-4 border-t border-gray-100 dark:border-gray-800 pt-4">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm font-medium">Ativar Refinamento AI</p>
-                                <p class="text-xs text-gray-500">Limpar texto, corrigir gramática, formatar por contexto</p>
-                            </div>
-                            <button @click="config.ai.enabled = !config.ai.enabled; saveConfig()"
-                                :class="config.ai.enabled ? 'bg-brand-600' : 'bg-gray-300 dark:bg-gray-600'"
-                                class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors">
-                                <span :class="config.ai.enabled ? 'translate-x-6' : 'translate-x-1'" class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"></span>
-                            </button>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1.5">Backend LLM</label>
-                            <select x-model="config.ai.backend" @change="saveConfig()" class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                                <option value="none">Nenhum</option>
-                                <option value="openai">OpenAI</option>
-                                <option value="groq">Groq</option>
-                                <option value="anthropic">Anthropic</option>
-                                <option value="local">Local (llama.cpp)</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1.5">Modelo</label>
-                            <input type="text" x-model="config.ai.model" @change="saveConfig()" placeholder="ex: gpt-4o-mini" class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1.5">Prompt Personalizado</label>
-                            <textarea x-model="config.ai.custom_prompt" @change="saveConfig()" rows="3" placeholder="Deixe vazio para usar o padrão" class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm"></textarea>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Hotkey Section -->
-                <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800">
-                    <button @click="configOpen.hotkey = !configOpen.hotkey" class="w-full flex items-center justify-between p-5">
-                        <div class="flex items-center gap-3">
-                            <svg class="w-5 h-5 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-                            <span class="font-semibold">Atalhos de Teclado</span>
-                        </div>
-                        <svg :class="configOpen.hotkey ? 'rotate-180' : ''" class="w-5 h-5 text-gray-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
-                    </button>
-                    <div x-show="configOpen.hotkey" x-collapse class="px-5 pb-5 space-y-4 border-t border-gray-100 dark:border-gray-800 pt-4">
-                        <div>
-                            <label class="block text-sm font-medium mb-1.5">Hotkey de Ditado</label>
-                            <input type="text" x-model="config.hotkey.dictation" @change="saveConfig()" class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm font-mono">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1.5">Hotkey de Comando</label>
-                            <input type="text" x-model="config.hotkey.command" @change="saveConfig()" class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm font-mono">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium mb-1.5">Modo de Ativação</label>
-                            <select x-model="config.hotkey.mode" @change="saveConfig()" class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                                <option value="toggle">Toggle</option>
-                                <option value="push-to-talk">Push-to-Talk</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Injection Section -->
-                <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800">
-                    <button @click="configOpen.injection = !configOpen.injection" class="w-full flex items-center justify-between p-5">
-                        <div class="flex items-center gap-3">
-                            <svg class="w-5 h-5 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-                            <span class="font-semibold">Injeção de Texto</span>
-                        </div>
-                        <svg :class="configOpen.injection ? 'rotate-180' : ''" class="w-5 h-5 text-gray-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
-                    </button>
-                    <div x-show="configOpen.injection" x-collapse class="px-5 pb-5 space-y-4 border-t border-gray-100 dark:border-gray-800 pt-4">
-                        <div>
-                            <label class="block text-sm font-medium mb-1.5">Método</label>
-                            <select x-model="config.injection.method" @change="saveConfig()" class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                                <option value="auto">Auto</option>
-                                <option value="wtype">wtype (Wayland)</option>
-                                <option value="xdotool">xdotool (X11)</option>
-                                <option value="ydotool">ydotool (Wayland)</option>
-                                <option value="clipboard-only">Clipboard Only</option>
-                            </select>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm font-medium">Preservar Clipboard</p>
-                                <p class="text-xs text-gray-500">Restaurar conteúdo anterior após injeção</p>
-                            </div>
-                            <button @click="config.injection.preserve_clipboard = !config.injection.preserve_clipboard; saveConfig()"
-                                :class="config.injection.preserve_clipboard ? 'bg-brand-600' : 'bg-gray-300 dark:bg-gray-600'"
-                                class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors">
-                                <span :class="config.injection.preserve_clipboard ? 'translate-x-6' : 'translate-x-1'" class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"></span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- History Config Section -->
-                <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800">
-                    <button @click="configOpen.historyConf = !configOpen.historyConf" class="w-full flex items-center justify-between p-5">
-                        <div class="flex items-center gap-3">
-                            <svg class="w-5 h-5 text-brand-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                            <span class="font-semibold">Histórico & Adaptativo</span>
-                        </div>
-                        <svg :class="configOpen.historyConf ? 'rotate-180' : ''" class="w-5 h-5 text-gray-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
-                    </button>
-                    <div x-show="configOpen.historyConf" x-collapse class="px-5 pb-5 space-y-4 border-t border-gray-100 dark:border-gray-800 pt-4">
-                        <div>
-                            <label class="block text-sm font-medium mb-1.5">Retenção (dias)</label>
-                            <input type="number" min="1" max="365" x-model.number="config.history.retention_days" @change="saveConfig()" class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm font-medium">Aprendizado Adaptativo</p>
-                                <p class="text-xs text-gray-500">Aprender correções automaticamente</p>
-                            </div>
-                            <button @click="config.adaptive.enabled = !config.adaptive.enabled; saveConfig()"
-                                :class="config.adaptive.enabled ? 'bg-brand-600' : 'bg-gray-300 dark:bg-gray-600'"
-                                class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors">
-                                <span :class="config.adaptive.enabled ? 'translate-x-6' : 'translate-x-1'" class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"></span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Save/Reset Actions -->
-                <div class="flex gap-3 pt-2">
-                    <button @click="if(confirm('Resetar todas as configurações para os valores padrão?')) resetConfig()"
-                        class="px-4 py-2 bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm font-medium hover:bg-red-200 dark:hover:bg-red-900/30 transition-colors">
-                        Resetar para Padrão
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- History Page -->
-        <div x-show="currentPage === 'history'" x-cloak class="fade-in">
-            <div class="flex items-center justify-between mb-6">
-                <h2 class="text-2xl font-bold">Histórico de Transcrições</h2>
-                <div class="flex items-center gap-3">
-                    <a href="/api/history/export" class="px-3 py-2 bg-brand-100 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400 rounded-lg text-sm font-medium hover:bg-brand-200 transition-colors">Exportar JSON</a>
-                    <button @click="if(confirm('Limpar TODO o histórico?')) clearHistory()"
-                        class="px-3 py-2 bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm font-medium hover:bg-red-200 transition-colors">Limpar Tudo</button>
-                </div>
-            </div>
-
-            <!-- Search -->
-            <div class="mb-4">
-                <input type="text" x-model="historySearch" @input.debounce.300ms="loadHistory()"
-                    placeholder="Buscar transcrições..."
-                    class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-2.5 text-sm">
-            </div>
-
-            <!-- History Table -->
-            <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
-                <div class="overflow-x-auto">
-                    <table class="w-full">
-                        <thead class="bg-gray-50 dark:bg-gray-800/50">
-                            <tr>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Texto</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Palavras</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duração</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">App</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-                            <template x-for="entry in historyEntries" :key="entry.id">
-                                <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                                    <td class="px-4 py-3 text-sm text-gray-500 whitespace-nowrap" x-text="formatDate(entry.timestamp)"></td>
-                                    <td class="px-4 py-3 text-sm max-w-md">
-                                        <p class="truncate" x-text="entry.refined_text || entry.raw_text"></p>
-                                        <p x-show="entry.refined_text" class="text-xs text-gray-400 truncate mt-0.5" x-text="'Original: ' + entry.raw_text"></p>
-                                    </td>
-                                    <td class="px-4 py-3 text-sm text-gray-500" x-text="entry.word_count"></td>
-                                    <td class="px-4 py-3 text-sm text-gray-500" x-text="entry.duration.toFixed(1) + 's'"></td>
-                                    <td class="px-4 py-3 text-sm text-gray-500 max-w-[120px] truncate" x-text="entry.app_context || '-'"></td>
-                                    <td class="px-4 py-3 text-sm">
-                                        <div class="flex items-center gap-2">
-                                            <button @click="copyToClipboard(entry.refined_text || entry.raw_text)" class="text-brand-600 hover:text-brand-800 dark:text-brand-400" title="Copiar">
-                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-                                            </button>
-                                            <button @click="deleteHistoryEntry(entry.id)" class="text-red-500 hover:text-red-700" title="Excluir">
-                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </template>
-                        </tbody>
-                    </table>
-                </div>
-                <div x-show="historyEntries.length === 0" class="p-8 text-center text-gray-400">Nenhuma transcrição encontrada</div>
-
-                <!-- Pagination -->
-                <div x-show="historyTotal > historyLimit" class="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-gray-800">
-                    <span class="text-sm text-gray-500" x-text="`${historyTotal} transcrição(ões)`"></span>
-                    <div class="flex gap-2">
-                        <button @click="historyPage > 1 && (historyPage--, loadHistory())"
-                            :disabled="historyPage <= 1"
-                            :class="historyPage <= 1 ? 'opacity-50 cursor-not-allowed' : ''"
-                            class="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 rounded-lg">Anterior</button>
-                        <span class="px-3 py-1.5 text-sm" x-text="'Página ' + historyPage"></span>
-                        <button @click="historyHasMore && (historyPage++, loadHistory())"
-                            :disabled="!historyHasMore"
-                            :class="!historyHasMore ? 'opacity-50 cursor-not-allowed' : ''"
-                            class="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 rounded-lg">Próxima</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Dictionary Page -->
-        <div x-show="currentPage === 'dictionary'" x-cloak class="fade-in">
-            <h2 class="text-2xl font-bold mb-6">Dicionário Personalizado</h2>
-
-            <!-- Add Word -->
-            <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 mb-6">
-                <h3 class="font-semibold mb-3">Adicionar Palavra</h3>
-                <div class="flex gap-3">
-                    <input type="text" x-model="newWord" placeholder="Palavra ou termo" class="flex-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm" @keydown.enter="addWord()">
-                    <select x-model="newWordCategory" class="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                        <option value="general">Geral</option>
-                        <option value="personal_names">Nomes Pessoais</option>
-                        <option value="technical">Técnico</option>
-                        <option value="brand">Marca</option>
-                    </select>
-                    <button @click="addWord()" class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors">Adicionar</button>
-                </div>
-            </div>
-
-            <!-- Words Table -->
-            <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden mb-6">
-                <div class="p-5 border-b border-gray-100 dark:border-gray-800">
-                    <h3 class="font-semibold">Palavras <span class="text-gray-400 font-normal" x-text="'(' + dictionary.entries.length + ')'"></span></h3>
-                </div>
-                <table class="w-full">
-                    <thead class="bg-gray-50 dark:bg-gray-800/50">
-                        <tr>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Palavra</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fonte</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Categoria</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Frequência</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-                        <template x-for="entry in dictionary.entries" :key="entry.word">
-                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                                <td class="px-4 py-3 text-sm font-medium" x-text="entry.word"></td>
-                                <td class="px-4 py-3 text-sm text-gray-500">
-                                    <span :class="entry.source === 'manual' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'"
-                                        class="px-2 py-0.5 rounded-full text-xs" x-text="entry.source"></span>
-                                </td>
-                                <td class="px-4 py-3 text-sm text-gray-500" x-text="entry.category"></td>
-                                <td class="px-4 py-3 text-sm text-gray-500" x-text="entry.frequency"></td>
-                                <td class="px-4 py-3">
-                                    <button @click="removeWord(entry.word)" class="text-red-500 hover:text-red-700">
-                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                                    </button>
-                                </td>
-                            </tr>
-                        </template>
-                    </tbody>
-                </table>
-                <div x-show="dictionary.entries.length === 0" class="p-8 text-center text-gray-400">Nenhuma palavra no dicionário</div>
-            </div>
-
-            <!-- Corrections Table -->
-            <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
-                <div class="p-5 border-b border-gray-100 dark:border-gray-800">
-                    <h3 class="font-semibold">Correções Aprendidas <span class="text-gray-400 font-normal" x-text="'(' + dictionary.corrections.length + ')'"></span></h3>
-                </div>
-                <table class="w-full">
-                    <thead class="bg-gray-50 dark:bg-gray-800/50">
-                        <tr>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ouvido</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Corrigido</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vezes</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Última vez</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-                        <template x-for="(corr, index) in dictionary.corrections" :key="index">
-                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                                <td class="px-4 py-3 text-sm text-red-500 line-through" x-text="corr.heard"></td>
-                                <td class="px-4 py-3 text-sm text-green-600 font-medium" x-text="corr.corrected"></td>
-                                <td class="px-4 py-3 text-sm text-gray-500" x-text="corr.count"></td>
-                                <td class="px-4 py-3 text-sm text-gray-500" x-text="formatDate(corr.last_seen)"></td>
-                                <td class="px-4 py-3">
-                                    <button @click="removeCorrection(index)" class="text-red-500 hover:text-red-700">
-                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                                    </button>
-                                </td>
-                            </tr>
-                        </template>
-                    </tbody>
-                </table>
-                <div x-show="dictionary.corrections.length === 0" class="p-8 text-center text-gray-400">Nenhuma correção aprendida</div>
-            </div>
-        </div>
-
-        <!-- Snippets Page -->
-        <div x-show="currentPage === 'snippets'" x-cloak class="fade-in">
-            <h2 class="text-2xl font-bold mb-6">Atalhos de Voz (Snippets)</h2>
-
-            <!-- Add Snippet -->
-            <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 mb-6">
-                <h3 class="font-semibold mb-3">Adicionar Snippet</h3>
-                <div class="flex gap-3">
-                    <input type="text" x-model="newSnippetTrigger" placeholder="Frase gatilho (ex: meu email)" class="flex-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm" @keydown.enter="addSnippet()">
-                    <input type="text" x-model="newSnippetExpansion" placeholder="Expansão (ex: joao@email.com)" class="flex-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm" @keydown.enter="addSnippet()">
-                    <button @click="addSnippet()" class="px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors">Adicionar</button>
-                </div>
-            </div>
-
-            <!-- Snippets Table -->
-            <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
-                <table class="w-full">
-                    <thead class="bg-gray-50 dark:bg-gray-800/50">
-                        <tr>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Gatilho</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expansão</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-                        <template x-for="snippet in snippets" :key="snippet.trigger">
-                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                                <td class="px-4 py-3 text-sm font-mono bg-gray-50 dark:bg-gray-800/30" x-text="snippet.trigger"></td>
-                                <td class="px-4 py-3 text-sm" x-text="snippet.expansion"></td>
-                                <td class="px-4 py-3">
-                                    <button @click="removeSnippet(snippet.trigger)" class="text-red-500 hover:text-red-700">
-                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                                    </button>
-                                </td>
-                            </tr>
-                        </template>
-                    </tbody>
-                </table>
-                <div x-show="snippets.length === 0" class="p-8 text-center text-gray-400">Nenhum snippet configurado</div>
-            </div>
-        </div>
-
-        <!-- Models Page -->
-        <div x-show="currentPage === 'models'" x-cloak class="fade-in">
-            <div class="flex items-center justify-between mb-6">
-                <h2 class="text-2xl font-bold">Modelos Whisper</h2>
-                <div class="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg text-sm text-gray-600 dark:text-gray-400" x-text="'Uso total: ' + diskUsage.mb + ' MB'"></div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <template x-for="model in models" :key="model.name">
-                    <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5"
-                         :class="model.active ? 'ring-2 ring-brand-500' : ''">
-                        <div class="flex items-center justify-between mb-3">
-                            <h3 class="font-semibold" x-text="model.name"></h3>
-                            <span x-show="model.active" class="px-2 py-0.5 bg-brand-100 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400 rounded-full text-xs font-medium">Ativo</span>
-                        </div>
-                        <p class="text-sm text-gray-500 mb-4" x-text="'~' + model.size_mb + ' MB'"></p>
-                        <div class="flex items-center justify-between">
-                            <span :class="model.downloaded ? 'text-green-600' : 'text-gray-400'" class="text-sm flex items-center gap-1">
-                                <svg x-show="model.downloaded" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                                <span x-text="model.downloaded ? 'Baixado' : 'Não baixado'"></span>
-                            </span>
-                            <div class="flex gap-2">
-                                <button x-show="!model.downloaded" @click="downloadModel(model.name)"
-                                    :disabled="model.downloading"
-                                    class="px-3 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-medium hover:bg-brand-700 transition-colors disabled:opacity-50">
-                                    <span x-show="!model.downloading">Baixar</span>
-                                    <span x-show="model.downloading">Baixando...</span>
-                                </button>
-                                <button x-show="model.downloaded && !model.active" @click="deleteModel(model.name)"
-                                    class="px-3 py-1.5 bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-xs font-medium hover:bg-red-200 transition-colors">
-                                    Excluir
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+      <div class="main-shell">
+        <header class="topbar">
+          <button
+            class="icon-button mobile-menu-button"
+            type="button"
+            @click="mobileNavOpen = true"
+            :aria-label="t('Open menu')"
+            aria-controls="primary-navigation"
+            :aria-expanded="mobileNavOpen"
+          >
+            <span class="icon icon-menu-2" aria-hidden="true"></span>
+          </button>
+          <p
+            class="breadcrumb"
+            x-text="t(navItems.find(item => item.id === currentPage)?.label || '')"
+          ></p>
+          <div class="topbar-actions">
+            <label class="ui-language-control" for="ui-language">
+              <span class="sr-only" x-text="t('Interface language')"
+                >Interface language</span
+              >
+              <span class="icon icon-language" aria-hidden="true"></span>
+              <select
+                id="ui-language"
+                class="select"
+                x-model="uiLanguage"
+                @change="setLanguage($event.target.value)"
+                :aria-label="t('Interface language')"
+              >
+                <template x-for="language in languages" :key="language.code">
+                  <option
+                    :value="language.code"
+                    :selected="language.code === uiLanguage"
+                    x-text="language.name"
+                  ></option>
                 </template>
+              </select>
+            </label>
+            <span
+              class="badge"
+              :class="dictationStatusClass()"
+              x-show="!loading.status"
+              x-text="t(dictationStatusLabel())"
+            ></span>
+            <button
+              class="icon-button"
+              type="button"
+              @click="toggleTheme()"
+              :aria-label="darkMode ? t('Use light theme') : t('Use dark theme')"
+            >
+              <span
+                class="icon"
+                :class="darkMode ? 'icon-sun' : 'icon-moon'"
+                aria-hidden="true"
+              ></span>
+            </button>
+          </div>
+        </header>
+
+        <main id="main-content" class="page-content" tabindex="-1">
+          <section x-show="currentPage === 'dashboard'" x-cloak>
+            <header class="page-header">
+              <div>
+                <h1
+                  :id="currentPage === 'dashboard' ? 'page-heading' : null"
+                  class="page-title"
+                  tabindex="-1"
+                  x-text="t('Dashboard')"
+                >
+                  Dashboard
+                </h1>
+                <p
+                  class="page-description"
+                  x-text="t('Track your dictation space and latest transcriptions.')"
+                >
+                  Track your dictation space and latest transcriptions.
+                </p>
+              </div>
+            </header>
+            <div class="error-banner" x-show="errors.status" role="alert">
+              <span class="icon icon-alert-circle" aria-hidden="true"></span>
+              <span x-text="t(errors.status)"></span>
+              <button
+                class="button button-quiet"
+                type="button"
+                @click="loadStatus()"
+              >
+                <span x-text="t('Retry')">Retry</span>
+              </button>
             </div>
-        </div>
+            <div class="dashboard-content stack">
+              <div class="dashboard-grid">
+                <section
+                  class="welcome-panel panel"
+                  aria-labelledby="welcome-title"
+                >
+                  <div class="welcome-copy">
+                    <h2 id="welcome-title" x-text="t('Your voice, in text.')">
+                      Your voice, in text.
+                    </h2>
+                    <p
+                      x-text="t('Use the app shortcut to dictate into any text field.')"
+                    >
+                      Use the app shortcut to dictate into any text field.
+                    </p>
+                    <div class="inline">
+                      <kbd
+                        class="shortcut-display"
+                        x-text="config.hotkey?.dictation || t('Shortcut not configured')"
+                      ></kbd>
+                      <button
+                        class="button button-secondary"
+                        type="button"
+                        @click="navigate('config')"
+                      >
+                        <span x-text="t('View settings')">View settings</span>
+                        <span
+                          class="icon icon-arrow-right"
+                          aria-hidden="true"
+                        ></span>
+                      </button>
+                    </div>
+                  </div>
+                </section>
 
-    </main>
-</div>
+                <aside
+                  class="summary-panel panel"
+                  aria-labelledby="summary-title"
+                >
+                  <div class="panel-header">
+                    <div>
+                      <h2
+                        id="summary-title"
+                        class="section-title"
+                        x-text="t('Usage summary')"
+                      >
+                        Usage summary
+                      </h2>
+                    </div>
+                    <span class="icon icon-keyboard" aria-hidden="true"></span>
+                  </div>
+                  <div
+                    class="summary-list"
+                    x-show="!loading.config && !errors.config"
+                  >
+                    <div class="summary-row">
+                      <span x-text="t('Model')">Model</span
+                      ><strong
+                        x-text="config.stt?.model || t('Not set')"
+                      ></strong>
+                    </div>
+                    <div class="summary-row">
+                      <span x-text="t('Language')">Language</span
+                      ><strong
+                        x-text="({ auto: t('Auto-detect'), pt: t('Portuguese'), en: t('English'), es: t('Spanish'), fr: t('French'), de: t('German'), it: t('Italian'), ja: t('Japanese'), zh: t('Chinese') })[config.stt?.language] || config.stt?.language || t('Not set')"
+                      ></strong>
+                    </div>
+                    <div class="summary-row">
+                      <span x-text="t('Refinement')">Refinement</span
+                      ><strong
+                        x-text="config.ai?.enabled ? t('Enabled') : t('Disabled')"
+                      ></strong>
+                    </div>
+                  </div>
+                  <div class="loading-state" x-show="loading.config">
+                    <span class="skeleton"></span><span class="skeleton"></span
+                    ><span class="skeleton"></span>
+                  </div>
+                  <div class="error-banner" x-show="errors.config" role="alert">
+                    <span
+                      class="icon icon-alert-circle"
+                      aria-hidden="true"
+                    ></span>
+                    <span x-text="t(errors.config)"></span>
+                    <button
+                      class="button button-quiet"
+                      type="button"
+                      @click="loadConfig()"
+                    >
+                      <span x-text="t('Retry')">Retry</span>
+                    </button>
+                  </div>
+                </aside>
+              </div>
 
-<!-- Toast Notifications -->
-<div x-show="toast.show" x-transition class="fixed bottom-6 right-6 z-50">
-    <div :class="toast.type === 'success' ? 'bg-green-600' : toast.type === 'error' ? 'bg-red-600' : 'bg-brand-600'"
-         class="text-white px-4 py-3 rounded-lg shadow-lg text-sm max-w-sm">
-        <span x-text="toast.message"></span>
+              <section
+                class="dashboard-stats"
+                :aria-label="t('Transcription statistics')"
+              >
+                <template x-if="loading.stats">
+                  <div class="loading-state">
+                    <span class="skeleton"></span><span class="skeleton"></span
+                    ><span class="skeleton"></span
+                    ><span class="skeleton"></span>
+                  </div>
+                </template>
+                <div class="error-banner" x-show="errors.stats" role="alert">
+                  <span
+                    class="icon icon-alert-circle"
+                    aria-hidden="true"
+                  ></span>
+                  <span x-text="t(errors.stats)"></span>
+                  <button
+                    class="button button-quiet"
+                    type="button"
+                    @click="loadStats()"
+                  >
+                    <span x-text="t('Retry')">Retry</span>
+                  </button>
+                </div>
+                <template x-if="!loading.stats && !errors.stats">
+                  <div class="stats-strip">
+                    <div class="stat">
+                      <span
+                        class="stat-label"
+                        x-text="t('Transcriptions today')"
+                        >Transcriptions today</span
+                      ><strong
+                        class="stat-value"
+                        x-text="formatNumber(stats.today_entries || 0)"
+                      ></strong
+                      ><span
+                        class="stat-detail"
+                        x-text="t('Items logged today')"
+                        >Items logged today</span
+                      >
+                    </div>
+                    <div class="stat">
+                      <span class="stat-label" x-text="t('Words today')"
+                        >Words today</span
+                      ><strong
+                        class="stat-value"
+                        x-text="formatNumber(stats.today_words || 0)"
+                      ></strong
+                      ><span class="stat-detail" x-text="t('Recognized text')"
+                        >Recognized text</span
+                      >
+                    </div>
+                    <div class="stat">
+                      <span
+                        class="stat-label"
+                        x-text="t('Total transcriptions')"
+                        >Total transcriptions</span
+                      ><strong
+                        class="stat-value"
+                        x-text="formatNumber(stats.total_entries || 0)"
+                      ></strong
+                      ><span class="stat-detail" x-text="t('In your history')"
+                        >In your history</span
+                      >
+                    </div>
+                    <div class="stat">
+                      <span class="stat-label" x-text="t('Average duration')"
+                        >Average duration</span
+                      ><strong
+                        class="stat-value"
+                        x-text="formatDuration(stats.avg_duration || 0)"
+                      ></strong
+                      ><span class="stat-detail" x-text="t('Per transcription')"
+                        >Per transcription</span
+                      >
+                    </div>
+                  </div>
+                </template>
+              </section>
+
+              <section class="panel" aria-labelledby="recent-title">
+                <div class="panel-header">
+                  <div>
+                    <h2
+                      id="recent-title"
+                      class="section-title"
+                      x-text="t('Recent transcriptions')"
+                    >
+                      Recent transcriptions
+                    </h2>
+                    <p
+                      class="section-description"
+                      x-text="t('Your latest texts are available in history.')"
+                    >
+                      Your latest texts are available in history.
+                    </p>
+                  </div>
+                  <button
+                    class="button button-quiet"
+                    type="button"
+                    @click="navigate('history')"
+                  >
+                    <span x-text="t('View history')">View history</span>
+                    <span
+                      class="icon icon-arrow-right"
+                      aria-hidden="true"
+                    ></span>
+                  </button>
+                </div>
+                <div class="panel-body">
+                  <div class="loading-state" x-show="loading.recentHistory">
+                    <span class="skeleton"></span><span class="skeleton"></span
+                    ><span class="skeleton"></span>
+                  </div>
+                  <div
+                    class="error-banner"
+                    x-show="errors.recentHistory"
+                    role="alert"
+                  >
+                    <span
+                      class="icon icon-alert-circle"
+                      aria-hidden="true"
+                    ></span>
+                    <span x-text="t(errors.recentHistory)"></span>
+                    <button
+                      class="button button-quiet"
+                      type="button"
+                      @click="loadRecentHistory()"
+                    >
+                      <span x-text="t('Retry')">Retry</span>
+                    </button>
+                  </div>
+                  <div
+                    class="recent-list"
+                    x-show="!loading.recentHistory && !errors.recentHistory && recentHistory.length"
+                  >
+                    <template x-for="entry in recentHistory" :key="entry.id">
+                      <article class="recent-entry">
+                        <p
+                          class="entry-text"
+                          x-text="(entry.refined_text || entry.raw_text).substring(0, 180) + ((entry.refined_text || entry.raw_text).length > 180 ? '…' : '')"
+                        ></p>
+                        <div class="entry-meta">
+                          <span x-text="formatDate(entry.timestamp)"></span>
+                          <span
+                            x-text="t('{count} words', { count: entry.word_count })"
+                          ></span>
+                          <span
+                            x-show="entry.app_context"
+                            x-text="entry.app_context"
+                          ></span>
+                        </div>
+                      </article>
+                    </template>
+                  </div>
+                  <div
+                    class="empty-state"
+                    x-show="!loading.recentHistory && !errors.recentHistory && !recentHistory.length"
+                  >
+                    <span class="empty-icon" aria-hidden="true"
+                      ><span class="icon icon-history"></span
+                    ></span>
+                    <h3 class="empty-title" x-text="t('No transcriptions yet')">
+                      No transcriptions yet
+                    </h3>
+                    <p
+                      class="empty-description"
+                      x-text="t('Use the configured app shortcut to create your first entry.')"
+                    >
+                      Use the configured app shortcut to create your first
+                      entry.
+                    </p>
+                    <button
+                      class="button button-secondary"
+                      type="button"
+                      @click="navigate('config')"
+                    >
+                      <span x-text="t('View settings')">View settings</span>
+                    </button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section x-show="currentPage === 'config'" x-cloak>
+            <header class="page-header">
+              <div>
+                <h1
+                  :id="currentPage === 'config' ? 'page-heading' : null"
+                  class="page-title"
+                  tabindex="-1"
+                  x-text="t('Settings')"
+                >
+                  Settings
+                </h1>
+                <p
+                  class="page-description"
+                  x-text="t('Adjust recognition, shortcuts, and text injection.')"
+                >
+                  Adjust recognition, shortcuts, and text injection.
+                </p>
+              </div>
+              <div class="page-actions" x-show="saveState">
+                <span
+                  class="badge badge-muted"
+                  x-show="saveState === 'saving'"
+                  x-text="t('Saving')"
+                  >Saving</span
+                >
+                <span
+                  class="badge badge-success"
+                  x-show="saveState === 'saved'"
+                  x-text="t('Saved')"
+                  >Saved</span
+                >
+                <span
+                  class="badge"
+                  x-show="saveState === 'error'"
+                  x-text="t('Could not save settings.')"
+                  >Could not save settings.</span
+                >
+              </div>
+            </header>
+
+            <div class="loading-state" x-show="loading.config">
+              <span class="skeleton"></span><span class="skeleton"></span
+              ><span class="skeleton"></span>
+            </div>
+            <div class="error-banner" x-show="errors.config" role="alert">
+              <span class="icon icon-alert-circle" aria-hidden="true"></span>
+              <span x-text="t(errors.config)"></span>
+              <button
+                class="button button-secondary"
+                type="button"
+                @click="loadConfig()"
+              >
+                <span x-text="t('Retry')">Retry</span>
+              </button>
+            </div>
+
+            <form
+              class="settings-layout"
+              x-show="!loading.config && !errors.config"
+              @submit.prevent="saveConfig()"
+            >
+              <p class="settings-notice">
+                <span class="icon icon-alert-circle" aria-hidden="true"></span>
+                <span
+                  x-text="t('Changes are saved automatically and persist for the next startup. Restart the app when needed.')"
+                >
+                  Changes are saved automatically and persist for the next
+                  startup. Restart the app when needed.
+                </span>
+              </p>
+
+              <details
+                class="settings-group"
+                open
+                @toggle="configOpen.stt = $event.target.open"
+              >
+                <summary class="settings-summary">
+                  <span
+                    class="settings-icon icon icon-microphone"
+                    aria-hidden="true"
+                  ></span>
+                  <span x-text="t('Transcription (STT)')"
+                    >Transcription (STT)</span
+                  >
+                </summary>
+                <div class="settings-fields form-grid">
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="stt-backend"
+                      x-text="t('STT backend')"
+                      >STT backend</label
+                    >
+                    <select
+                      id="stt-backend"
+                      class="select"
+                      x-model="config.stt.backend"
+                      @change="selectSttBackend()"
+                    >
+                      <option
+                        value="faster-whisper"
+                        x-text="'faster-whisper (' + t('Local') + ')'"
+                      >
+                        faster-whisper (Local)
+                      </option>
+                      <option
+                        value="whisper-cpp"
+                        x-text="t('whisper.cpp (AMD / Vulkan)')"
+                      >
+                        whisper.cpp (AMD / Vulkan)
+                      </option>
+                      <option value="openai">OpenAI Whisper API</option>
+                      <option value="groq">Groq Whisper API</option>
+                    </select>
+                  </div>
+                  <div class="field" x-show="isLocalSttBackend()">
+                    <label
+                      class="field-label"
+                      for="stt-model"
+                      x-text="t('Whisper model')"
+                      >Whisper model</label
+                    >
+                    <select
+                      id="stt-model"
+                      class="select"
+                      x-model="config.stt.model"
+                      @change="saveConfig()"
+                    >
+                      <template x-for="model in sttModelOptions()" :key="model.name">
+                        <option
+                          :value="model.name"
+                          :selected="config.stt.model === model.name"
+                          x-text="formatSttModel(model)"
+                        ></option>
+                      </template>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="stt-language"
+                      x-text="t('Language')"
+                      >Language</label
+                    >
+                    <select
+                      id="stt-language"
+                      class="select"
+                      x-model="config.stt.language"
+                      @change="saveConfig()"
+                    >
+                      <option value="auto" x-text="t('Auto-detect')">
+                        Auto-detect
+                      </option>
+                      <option value="pt" x-text="t('Portuguese')">
+                        Portuguese
+                      </option>
+                      <option value="en" x-text="t('English')">English</option>
+                      <option value="es" x-text="t('Spanish')">Spanish</option>
+                      <option value="fr" x-text="t('French')">French</option>
+                      <option value="de" x-text="t('German')">German</option>
+                      <option value="it" x-text="t('Italian')">Italian</option>
+                      <option value="ja" x-text="t('Japanese')">
+                        Japanese
+                      </option>
+                      <option value="zh" x-text="t('Chinese')">Chinese</option>
+                    </select>
+                  </div>
+                  <div class="field" x-show="isLocalSttBackend()">
+                    <label
+                      class="field-label"
+                      for="stt-device"
+                      x-text="t('Compute device')"
+                      >Compute device</label
+                    >
+                    <template x-if="isWhisperCppSttBackend()">
+                      <select
+                        id="stt-device"
+                        class="select"
+                        x-model="config.stt.device"
+                        @change="saveConfig()"
+                      >
+                        <option value="vulkan" x-text="t('Vulkan (AMD GPU)')">
+                          Vulkan (AMD GPU)
+                        </option>
+                        <option value="cpu">CPU</option>
+                      </select>
+                    </template>
+                    <template x-if="config.stt.backend === 'faster-whisper'">
+                      <select
+                        id="stt-device"
+                        class="select"
+                        x-model="config.stt.device"
+                        @change="saveConfig()"
+                      >
+                        <option value="auto" x-text="t('Auto')">Auto</option>
+                        <option value="cpu">CPU</option>
+                        <option value="cuda">CUDA (GPU)</option>
+                      </select>
+                    </template>
+                  </div>
+                  <div
+                    class="field"
+                    x-show="config.stt.backend === 'faster-whisper'"
+                  >
+                    <label
+                      class="field-label"
+                      for="stt-compute"
+                      x-text="t('Compute type')"
+                      >Compute type</label
+                    >
+                    <select
+                      id="stt-compute"
+                      class="select"
+                      x-model="config.stt.compute_type"
+                      @change="saveConfig()"
+                    >
+                      <option value="auto" x-text="t('Auto')">Auto</option>
+                      <option value="float16">float16</option>
+                      <option value="int8">int8</option>
+                      <option value="float32">float32</option>
+                    </select>
+                  </div>
+                </div>
+              </details>
+
+              <details
+                class="settings-group"
+                :open="configOpen.audio"
+                @toggle="configOpen.audio = $event.target.open"
+              >
+                <summary class="settings-summary">
+                  <span
+                    class="settings-icon icon icon-volume"
+                    aria-hidden="true"
+                  ></span>
+                  <span x-text="t('Audio')">Audio</span>
+                </summary>
+                <div class="settings-fields form-grid">
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="silence-duration"
+                      x-text="t('Silence duration')"
+                      >Silence duration</label
+                    >
+                    <input
+                      id="silence-duration"
+                      class="input"
+                      type="range"
+                      min="0.5"
+                      max="10"
+                      step="0.5"
+                      x-model="config.audio.silence_duration"
+                      @change="saveConfig()"
+                    />
+                    <p
+                      class="field-help"
+                      x-text="formatDuration(config.audio.silence_duration)"
+                    ></p>
+                  </div>
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="silence-threshold"
+                      x-text="t('VAD sensitivity')"
+                      >VAD sensitivity</label
+                    >
+                    <input
+                      id="silence-threshold"
+                      class="input"
+                      type="range"
+                      min="0.1"
+                      max="0.9"
+                      step="0.05"
+                      x-model="config.audio.silence_threshold"
+                      @change="saveConfig()"
+                    />
+                    <p
+                      class="field-help"
+                      x-text="formatNumber(config.audio.silence_threshold, { maximumFractionDigits: 2 })"
+                    ></p>
+                  </div>
+                  <div class="toggle-row">
+                    <div>
+                      <label
+                        class="field-label"
+                        for="whisper-mode"
+                        x-text="t('Whisper mode')"
+                        >Whisper mode</label
+                      >
+                      <p
+                        class="field-help"
+                        x-text="t('Boost gain for quiet environments')"
+                      >
+                        Boost gain for quiet environments
+                      </p>
+                    </div>
+                    <input
+                      id="whisper-mode"
+                      class="switch"
+                      type="checkbox"
+                      role="switch"
+                      :checked="config.audio.whisper_mode"
+                      @change="config.audio.whisper_mode = $event.target.checked; saveConfig()"
+                    />
+                  </div>
+                </div>
+              </details>
+
+              <details
+                class="settings-group"
+                :open="configOpen.ai"
+                @toggle="configOpen.ai = $event.target.open"
+              >
+                <summary class="settings-summary">
+                  <span
+                    class="settings-icon icon icon-bolt"
+                    aria-hidden="true"
+                  ></span>
+                  <span x-text="t('AI refinement')">AI refinement</span>
+                </summary>
+                <div class="settings-fields form-grid">
+                  <div class="toggle-row">
+                    <div>
+                      <label
+                        class="field-label"
+                        for="ai-enabled"
+                        x-text="t('Enable AI refinement')"
+                        >Enable AI refinement</label
+                      >
+                      <p
+                        class="field-help"
+                        x-text="t('Clean text, correct grammar, and format for context')"
+                      >
+                        Clean text, correct grammar, and format for context
+                      </p>
+                    </div>
+                    <input
+                      id="ai-enabled"
+                      class="switch"
+                      type="checkbox"
+                      role="switch"
+                      :checked="config.ai.enabled"
+                      @change="config.ai.enabled = $event.target.checked; saveConfig()"
+                    />
+                  </div>
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="ai-backend"
+                      x-text="t('LLM backend')"
+                      >LLM backend</label
+                    >
+                    <select
+                      id="ai-backend"
+                      class="select"
+                      x-model="config.ai.backend"
+                      @change="selectAiBackend()"
+                    >
+                      <option value="none" x-text="t('None')">None</option>
+                      <option value="openai">OpenAI</option>
+                      <option value="groq">Groq</option>
+                      <option value="anthropic">Anthropic</option>
+                      <option value="local" x-text="t('Local (llama.cpp)')">
+                        Local (llama.cpp)
+                      </option>
+                      <option value="ollama" x-text="t('Local (Ollama)')">
+                        Local (Ollama)
+                      </option>
+                    </select>
+                  </div>
+                  <div class="field" x-show="!isOllamaBackend()">
+                    <label
+                      class="field-label"
+                      for="ai-model"
+                      x-text="t('Model')"
+                      >Model</label
+                    >
+                    <input
+                      id="ai-model"
+                      class="input"
+                      type="text"
+                      x-model="config.ai.model"
+                      @change="saveConfig()"
+                      :placeholder="t('e.g. gpt-4o-mini')"
+                      placeholder="e.g. gpt-4o-mini"
+                    />
+                  </div>
+                  <div class="field full-width" x-show="isOllamaBackend()">
+                    <div class="field-label-row">
+                      <label
+                        class="field-label"
+                        for="ai-ollama-model"
+                        x-text="t('Installed local model')"
+                        >Installed local model</label
+                      >
+                      <button
+                        class="button button-quiet"
+                        type="button"
+                        @click="loadOllamaModels()"
+                        :disabled="loading.ollama"
+                        :aria-label="t('Refresh installed Ollama models')"
+                      >
+                        <span
+                          x-text="loading.ollama ? t('Refreshing…') : t('Refresh')"
+                          >Refresh</span
+                        >
+                      </button>
+                    </div>
+                    <div
+                      class="ollama-model-picker"
+                      @click.outside="closeOllamaModelPicker()"
+                      @focusout="closeOllamaModelPickerOnFocusOut($event)"
+                    >
+                      <button
+                        id="ai-ollama-model"
+                        class="select ollama-model-picker-trigger"
+                        type="button"
+                        aria-haspopup="listbox"
+                        :aria-expanded="ollamaModelPickerOpen"
+                        aria-controls="ai-ollama-model-listbox"
+                        :aria-label="`${t('Installed local model')}: ${ollamaModelDisplayValue()}`"
+                        @click="ollamaModelPickerOpen ? closeOllamaModelPicker() : openOllamaModelPicker()"
+                        @keydown.arrow-down.prevent="openOllamaModelPicker(); moveOllamaModelPicker(1)"
+                        @keydown.arrow-up.prevent="openOllamaModelPicker(); moveOllamaModelPicker(-1)"
+                        @keydown.enter.prevent="openOllamaModelPicker()"
+                        @keydown.space.prevent="openOllamaModelPicker()"
+                        @keydown.escape.prevent.stop="closeOllamaModelPicker()"
+                        x-text="ollamaModelDisplayValue()"
+                      >
+                        Select an installed model
+                      </button>
+                      <div
+                        class="ollama-model-picker-popover"
+                        x-show="ollamaModelPickerOpen"
+                        x-cloak
+                      >
+                        <label
+                          class="sr-only"
+                          for="ai-ollama-model-search"
+                          x-text="t('Search installed models')"
+                          >Search installed models</label
+                        >
+                        <input
+                          id="ai-ollama-model-search"
+                          class="input ollama-model-search"
+                          type="search"
+                          role="combobox"
+                          autocomplete="off"
+                          x-model="ollamaModelQuery"
+                          :aria-expanded="ollamaModelPickerOpen"
+                          aria-controls="ai-ollama-model-listbox"
+                          :aria-activedescendant="ollamaModelActiveOptionId()"
+                          :aria-label="t('Search installed models')"
+                          :placeholder="t('Search installed models')"
+                          @input="onOllamaModelSearchInput()"
+                          @keydown.arrow-down.prevent="moveOllamaModelPicker(1)"
+                          @keydown.arrow-up.prevent="moveOllamaModelPicker(-1)"
+                          @keydown.enter.prevent="commitActiveOllamaModel()"
+                          @keydown.escape.prevent.stop="closeOllamaModelPicker(true)"
+                        />
+                        <ul
+                          id="ai-ollama-model-listbox"
+                          class="ollama-model-options"
+                          role="listbox"
+                          :aria-label="t('Installed local model')"
+                        >
+                          <li
+                            id="ai-ollama-model-option-0"
+                            role="option"
+                            :aria-selected="!config.ai.model"
+                            :class="{ 'is-active': ollamaModelActiveIndex === 0 }"
+                            @pointerdown.prevent
+                            @mouseenter="ollamaModelActiveIndex = 0"
+                            @click="commitOllamaModel('')"
+                            x-text="t('Clear selected model')"
+                          >
+                            Clear selected model
+                          </li>
+                          <template
+                            x-for="(model, index) in filteredOllamaInstalledModels()"
+                            :key="model.name"
+                          >
+                            <li
+                              :id="`ai-ollama-model-option-${index + 1}`"
+                              role="option"
+                              :aria-selected="model.name === config.ai.model"
+                              :class="{ 'is-active': ollamaModelActiveIndex === index + 1 }"
+                              @pointerdown.prevent
+                              @mouseenter="ollamaModelActiveIndex = index + 1"
+                              @click="commitOllamaModel(model.name)"
+                              x-text="formatOllamaModel(model)"
+                            ></li>
+                          </template>
+                        </ul>
+                        <p
+                          class="ollama-model-no-results"
+                          x-show="!filteredOllamaInstalledModels().length"
+                          role="status"
+                          x-text="t('No installed models match your search.')"
+                        >
+                          No installed models match your search.
+                        </p>
+                      </div>
+                    </div>
+                    <p
+                      class="field-help"
+                      x-text="t('Ollama runs locally at 127.0.0.1:11434. Your dictation stays on this computer.')"
+                    >
+                      Ollama runs locally at 127.0.0.1:11434. Your dictation
+                      stays on this computer.
+                    </p>
+                    <div
+                      class="ollama-loading loading-state"
+                      x-show="loading.ollama"
+                      role="status"
+                    >
+                      <span class="skeleton"></span>
+                      <span x-text="t('Loading installed Ollama models…')"
+                        >Loading installed Ollama models…</span
+                      >
+                    </div>
+                    <div
+                      class="error-banner ollama-status"
+                      x-show="!loading.ollama && errors.ollama"
+                      role="alert"
+                    >
+                      <span
+                        class="icon icon-alert-circle"
+                        aria-hidden="true"
+                      ></span>
+                      <div>
+                        <strong
+                          x-text="t('Could not load installed Ollama models.')"
+                          >Could not load installed Ollama models.</strong
+                        >
+                        <span x-text="errors.ollama"></span>
+                      </div>
+                    </div>
+                    <div
+                      class="error-banner ollama-status"
+                      x-show="!loading.ollama && ollamaCatalog.error"
+                      role="alert"
+                    >
+                      <span
+                        class="icon icon-alert-circle"
+                        aria-hidden="true"
+                      ></span>
+                      <div>
+                        <strong x-text="t('Ollama service is unavailable.')"
+                          >Ollama service is unavailable.</strong
+                        >
+                        <span x-text="ollamaCatalog.error"></span>
+                      </div>
+                    </div>
+                    <div
+                      class="empty-state ollama-empty"
+                      x-show="!loading.ollama && ollamaCatalog.available && !ollamaInstalledModels().length"
+                    >
+                      <h3
+                        class="empty-title"
+                        x-text="t('No installed Ollama models')"
+                      >
+                        No installed Ollama models
+                      </h3>
+                      <p
+                        class="empty-description"
+                        x-text="t('Install a recommended model below, then refresh this list.')"
+                      >
+                        Install a recommended model below, then refresh this
+                        list.
+                      </p>
+                    </div>
+                    <ul
+                      class="ollama-warnings"
+                      x-show="!loading.ollama && ollamaCatalog.warnings.length"
+                      aria-live="polite"
+                    >
+                      <template
+                        x-for="warning in ollamaCatalog.warnings"
+                        :key="warning"
+                      >
+                        <li x-text="warning"></li>
+                      </template>
+                    </ul>
+                    <section
+                      class="ollama-catalog"
+                      x-show="ollamaCatalog.recommended.length"
+                      aria-labelledby="ollama-recommended-title"
+                    >
+                      <h3
+                        id="ollama-recommended-title"
+                        class="ollama-catalog-title"
+                        x-text="t('Recommended models')"
+                      >
+                        Recommended models
+                      </h3>
+                      <p
+                        class="field-help"
+                        x-text="t('Larger models need more memory and take longer to download.')"
+                      >
+                        Larger models need more memory and take longer to
+                        download.
+                      </p>
+                      <div class="ollama-recommendation-grid">
+                        <template
+                          x-for="recommendation in ollamaCatalog.recommended"
+                          :key="recommendation.name"
+                        >
+                          <article class="ollama-recommendation">
+                            <div class="model-heading">
+                              <h4 x-text="recommendation.name"></h4>
+                              <span
+                                class="badge badge-success"
+                                x-show="recommendation.installed"
+                                x-text="t('Installed')"
+                                >Installed</span
+                              >
+                              <span
+                                class="badge badge-muted"
+                                x-show="!recommendation.installed"
+                                x-text="t('Not installed')"
+                                >Not installed</span
+                              >
+                            </div>
+                            <p x-text="t(recommendation.description)"></p>
+                            <p
+                              class="model-size"
+                              x-text="t('Download: {size} GB', { size: formatNumber(recommendation.size_gb, { maximumFractionDigits: 1 }) })"
+                            ></p>
+                            <button
+                              class="button button-secondary"
+                              type="button"
+                              x-show="recommendation.installed"
+                              @click="useOllamaRecommendation(recommendation)"
+                              :disabled="busy.config"
+                              x-text="t('Use')"
+                            >
+                              Use
+                            </button>
+                            <p
+                              class="ollama-pull-command"
+                              x-show="!recommendation.installed"
+                            >
+                              <span x-text="t('Install manually:')"
+                                >Install manually:</span
+                              >
+                              <code
+                                class="mono"
+                                x-text="ollamaPullCommand(recommendation.name)"
+                              ></code>
+                            </p>
+                          </article>
+                        </template>
+                      </div>
+                    </section>
+                  </div>
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="ai-prompt"
+                      x-text="t('Custom prompt')"
+                      >Custom prompt</label
+                    >
+                    <textarea
+                      id="ai-prompt"
+                      class="textarea"
+                      x-model="config.ai.custom_prompt"
+                      @change="saveConfig()"
+                      rows="3"
+                      :placeholder="t('Leave empty to use the default')"
+                      placeholder="Leave empty to use the default"
+                    ></textarea>
+                  </div>
+                </div>
+              </details>
+
+              <details
+                class="settings-group"
+                :open="configOpen.hotkey"
+                @toggle="configOpen.hotkey = $event.target.open"
+              >
+                <summary class="settings-summary">
+                  <span
+                    class="settings-icon icon icon-keyboard"
+                    aria-hidden="true"
+                  ></span>
+                  <span x-text="t('Keyboard shortcuts')"
+                    >Keyboard shortcuts</span
+                  >
+                </summary>
+                <div class="settings-fields form-grid">
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="dictation-hotkey"
+                      x-text="t('Dictation hotkey')"
+                      >Dictation hotkey</label
+                    >
+                    <input
+                      id="dictation-hotkey"
+                      class="input mono"
+                      type="text"
+                      x-model="config.hotkey.dictation"
+                      @change="saveConfig()"
+                    />
+                  </div>
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="command-hotkey"
+                      x-text="t('Command hotkey')"
+                      >Command hotkey</label
+                    >
+                    <input
+                      id="command-hotkey"
+                      class="input mono"
+                      type="text"
+                      x-model="config.hotkey.command"
+                      @change="saveConfig()"
+                    />
+                  </div>
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="hotkey-mode"
+                      x-text="t('Activation mode')"
+                      >Activation mode</label
+                    >
+                    <select
+                      id="hotkey-mode"
+                      class="select"
+                      x-model="config.hotkey.mode"
+                      @change="saveConfig()"
+                    >
+                      <option value="toggle" x-text="t('Toggle')">
+                        Toggle
+                      </option>
+                      <option value="push-to-talk" x-text="t('Push-to-Talk')">
+                        Push-to-Talk
+                      </option>
+                    </select>
+                  </div>
+                </div>
+              </details>
+
+              <details
+                class="settings-group"
+                :open="configOpen.injection"
+                @toggle="configOpen.injection = $event.target.open"
+              >
+                <summary class="settings-summary">
+                  <span
+                    class="settings-icon icon icon-copy"
+                    aria-hidden="true"
+                  ></span>
+                  <span x-text="t('Text injection')">Text injection</span>
+                </summary>
+                <div class="settings-fields form-grid">
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="injection-method"
+                      x-text="t('Method')"
+                      >Method</label
+                    >
+                    <select
+                      id="injection-method"
+                      class="select"
+                      x-model="config.injection.method"
+                      @change="saveConfig()"
+                    >
+                      <option value="auto" x-text="t('Auto')">Auto</option>
+                      <option value="wtype">wtype (Wayland)</option>
+                      <option value="xdotool">xdotool (X11)</option>
+                      <option value="ydotool">ydotool (Wayland)</option>
+                      <option
+                        value="clipboard-only"
+                        x-text="t('Clipboard only')"
+                      >
+                        Clipboard only
+                      </option>
+                    </select>
+                  </div>
+                  <div class="toggle-row">
+                    <div>
+                      <label
+                        class="field-label"
+                        for="preserve-clipboard"
+                        x-text="t('Preserve clipboard')"
+                        >Preserve clipboard</label
+                      >
+                      <p
+                        class="field-help"
+                        x-text="t('Restore previous content after injection')"
+                      >
+                        Restore previous content after injection
+                      </p>
+                    </div>
+                    <input
+                      id="preserve-clipboard"
+                      class="switch"
+                      type="checkbox"
+                      role="switch"
+                      :checked="config.injection.preserve_clipboard"
+                      @change="config.injection.preserve_clipboard = $event.target.checked; saveConfig()"
+                    />
+                  </div>
+                </div>
+              </details>
+
+              <details
+                class="settings-group"
+                :open="configOpen.historyConf"
+                @toggle="configOpen.historyConf = $event.target.open"
+              >
+                <summary class="settings-summary">
+                  <span
+                    class="settings-icon icon icon-history"
+                    aria-hidden="true"
+                  ></span>
+                  <span x-text="t('History and adaptive')"
+                    >History and adaptive</span
+                  >
+                </summary>
+                <div class="settings-fields form-grid">
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="retention-days"
+                      x-text="t('Retention (days)')"
+                      >Retention (days)</label
+                    >
+                    <input
+                      id="retention-days"
+                      class="input"
+                      type="number"
+                      min="1"
+                      max="365"
+                      x-model.number="config.history.retention_days"
+                      @change="saveConfig()"
+                    />
+                  </div>
+                  <div class="toggle-row">
+                    <div>
+                      <label
+                        class="field-label"
+                        for="adaptive-enabled"
+                        x-text="t('Adaptive learning')"
+                        >Adaptive learning</label
+                      >
+                      <p
+                        class="field-help"
+                        x-text="t('Learn corrections automatically')"
+                      >
+                        Learn corrections automatically
+                      </p>
+                    </div>
+                    <input
+                      id="adaptive-enabled"
+                      class="switch"
+                      type="checkbox"
+                      role="switch"
+                      :checked="config.adaptive.enabled"
+                      @change="config.adaptive.enabled = $event.target.checked; saveConfig()"
+                    />
+                  </div>
+                </div>
+              </details>
+
+              <div class="form-actions danger-zone">
+                <button
+                  class="button button-secondary"
+                  type="button"
+                  x-cloak
+                  x-show="saveState === 'error'"
+                  :disabled="busy.config"
+                  @click="saveConfig()"
+                >
+                  <span x-text="t('Try saving again')">Try saving again</span>
+                </button>
+                <button
+                  class="button button-danger"
+                  type="button"
+                  :disabled="busy.config"
+                  @click="requestConfirmation('Reset settings?', 'All settings will return to their default values.', () => resetConfig())"
+                >
+                  <span x-text="t('Reset to defaults')">Reset to defaults</span>
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section x-show="currentPage === 'history'" x-cloak>
+            <header class="page-header">
+              <div>
+                <h1
+                  :id="currentPage === 'history' ? 'page-heading' : null"
+                  class="page-title"
+                  tabindex="-1"
+                  x-text="t('Transcription history')"
+                >
+                  Transcription history
+                </h1>
+                <p
+                  class="page-description"
+                  x-text="t('Search, copy, or remove previously recognized text.')"
+                >
+                  Search, copy, or remove previously recognized text.
+                </p>
+              </div>
+              <div class="page-actions">
+                <a class="button button-secondary" href="/api/history/export">
+                  <span class="icon icon-download" aria-hidden="true"></span>
+                  <span x-text="t('Export JSON')">Export JSON</span>
+                </a>
+                <button
+                  class="button button-danger"
+                  type="button"
+                  :disabled="busy.historyClear"
+                  @click="requestConfirmation('Clear all history?', 'This action cannot be undone.', () => clearHistory())"
+                >
+                  <span x-text="t('Clear all')">Clear all</span>
+                </button>
+              </div>
+            </header>
+            <div class="toolbar">
+              <label class="search-field">
+                <span class="icon icon-search" aria-hidden="true"></span>
+                <span class="sr-only" x-text="t('Search transcriptions')"
+                  >Search transcriptions</span
+                >
+                <input
+                  class="input"
+                  type="search"
+                  x-model="historySearch"
+                  @input.debounce.300ms="searchHistory()"
+                  :placeholder="t('Search transcriptions')"
+                  placeholder="Search transcriptions"
+                />
+              </label>
+              <button
+                class="button button-quiet"
+                type="button"
+                @click="loadHistory()"
+              >
+                <span class="icon icon-refresh" aria-hidden="true"></span>
+                <span x-text="t('Refresh')">Refresh</span>
+              </button>
+            </div>
+            <section class="data-panel" :aria-label="t('History table')">
+              <div class="loading-state" x-show="loading.history">
+                <span class="skeleton"></span><span class="skeleton"></span
+                ><span class="skeleton"></span>
+              </div>
+              <div class="error-banner" x-show="errors.history" role="alert">
+                <span class="icon icon-alert-circle" aria-hidden="true"></span>
+                <span x-text="t(errors.history)"></span>
+                <button
+                  class="button button-quiet"
+                  type="button"
+                  @click="loadHistory()"
+                >
+                  <span x-text="t('Retry')">Retry</span>
+                </button>
+              </div>
+              <div
+                class="table-scroll"
+                x-show="!loading.history && !errors.history && historyEntries.length"
+              >
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th x-text="t('Date')">Date</th>
+                      <th x-text="t('Text')">Text</th>
+                      <th x-text="t('Words')">Words</th>
+                      <th x-text="t('Duration')">Duration</th>
+                      <th x-text="t('App')">App</th>
+                      <th>
+                        <span class="sr-only" x-text="t('Actions')"
+                          >Actions</span
+                        >
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="entry in historyEntries" :key="entry.id">
+                      <tr>
+                        <td
+                          class="small"
+                          x-text="formatDate(entry.timestamp)"
+                        ></td>
+                        <td class="text-cell">
+                          <p x-text="entry.refined_text || entry.raw_text"></p>
+                          <p
+                            class="small muted"
+                            x-show="entry.refined_text"
+                            x-text="t('Original: {text}', { text: entry.raw_text })"
+                          ></p>
+                        </td>
+                        <td x-text="formatNumber(entry.word_count)"></td>
+                        <td x-text="formatDuration(entry.duration)"></td>
+                        <td
+                          x-text="entry.app_context || t('Not provided')"
+                        ></td>
+                        <td class="table-actions">
+                          <button
+                            class="icon-button"
+                            type="button"
+                            @click="copyToClipboard(entry.refined_text || entry.raw_text)"
+                            :aria-label="t('Copy transcription')"
+                          >
+                            <span
+                              class="icon icon-copy"
+                              aria-hidden="true"
+                            ></span>
+                          </button>
+                          <button
+                            class="icon-button"
+                            type="button"
+                            @click="requestConfirmation('Delete transcription?', 'This action cannot be undone.', () => deleteHistoryEntry(entry.id))"
+                            :aria-label="t('Delete transcription')"
+                          >
+                            <span
+                              class="icon icon-trash"
+                              aria-hidden="true"
+                            ></span>
+                          </button>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+              <div
+                class="empty-state"
+                x-show="!loading.history && !errors.history && !historyEntries.length"
+              >
+                <span class="empty-icon" aria-hidden="true"
+                  ><span class="icon icon-history"></span
+                ></span>
+                <h2 class="empty-title" x-text="t('No transcriptions found')">
+                  No transcriptions found
+                </h2>
+                <p
+                  class="empty-description"
+                  x-text="t('Adjust your search or use the app to create a new transcription.')"
+                >
+                  Adjust your search or use the app to create a new
+                  transcription.
+                </p>
+              </div>
+              <div
+                class="pagination"
+                x-show="!loading.history && !errors.history && historyTotal > historyLimit"
+              >
+                <span
+                  class="result-count"
+                  x-text="t('{count} transcriptions', { count: historyTotal })"
+                ></span>
+                <div class="inline">
+                  <button
+                    class="button button-secondary"
+                    type="button"
+                    @click="historyPage > 1 && (historyPage--, loadHistory())"
+                    :disabled="historyPage <= 1"
+                  >
+                    <span x-text="t('Previous')">Previous</span>
+                  </button>
+                  <span
+                    class="small"
+                    x-text="t('Page {page}', { page: formatNumber(historyPage) })"
+                  ></span>
+                  <button
+                    class="button button-secondary"
+                    type="button"
+                    @click="historyHasMore && (historyPage++, loadHistory())"
+                    :disabled="!historyHasMore"
+                  >
+                    <span x-text="t('Next')">Next</span>
+                  </button>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <section x-show="currentPage === 'dictionary'" x-cloak>
+            <header class="page-header">
+              <div>
+                <h1
+                  :id="currentPage === 'dictionary' ? 'page-heading' : null"
+                  class="page-title"
+                  tabindex="-1"
+                  x-text="t('Custom dictionary')"
+                >
+                  Custom dictionary
+                </h1>
+                <p
+                  class="page-description"
+                  x-text="t('Keep names, brands, and technical terms easier to recognize.')"
+                >
+                  Keep names, brands, and technical terms easier to recognize.
+                </p>
+              </div>
+            </header>
+            <div class="loading-state" x-show="loading.dictionary">
+              <span class="skeleton"></span><span class="skeleton"></span>
+            </div>
+            <div class="error-banner" x-show="errors.dictionary" role="alert">
+              <span class="icon icon-alert-circle" aria-hidden="true"></span>
+              <span x-text="t(errors.dictionary)"></span>
+              <button
+                class="button button-quiet"
+                type="button"
+                @click="loadDictionary()"
+              >
+                <span x-text="t('Retry')">Retry</span>
+              </button>
+            </div>
+            <section
+              class="dictionary-packs"
+              aria-labelledby="dictionary-packs-title"
+              x-show="!loading.dictionary && !errors.dictionary"
+            >
+              <div class="section-heading">
+                <h2
+                  id="dictionary-packs-title"
+                  class="section-title"
+                  x-text="t('Bundled dictionaries')"
+                >
+                  Bundled dictionaries
+                </h2>
+                <p
+                  class="section-description"
+                  x-text="t('Choose optional term packs. Changes take effect with the next dictation without restarting.')"
+                >
+                  Choose optional term packs. Changes take effect with the next dictation without restarting.
+                </p>
+              </div>
+              <div class="dictionary-pack-grid">
+                <template x-for="pack in dictionaryPacks()" :key="pack.id">
+                  <article class="dictionary-pack">
+                    <div class="dictionary-pack-header">
+                      <div>
+                        <h3
+                          class="dictionary-pack-title"
+                          x-text="dictionaryPackName(pack)"
+                        ></h3>
+                        <p
+                          class="dictionary-pack-description"
+                          x-text="dictionaryPackDescription(pack)"
+                        ></p>
+                      </div>
+                      <label class="dictionary-pack-toggle">
+                        <span class="sr-only" x-text="t('Enable {pack}', { pack: dictionaryPackName(pack) })"></span>
+                        <input
+                          class="switch"
+                          type="checkbox"
+                          :checked="pack.enabled"
+                          :disabled="!!dictionaryPackBusy[pack.id]"
+                          :aria-label="t('Enable {pack}', { pack: dictionaryPackName(pack) })"
+                          @change="setDictionaryPack(pack, $event.target.checked)"
+                        />
+                      </label>
+                    </div>
+                    <div class="dictionary-pack-meta">
+                      <span
+                        class="badge"
+                        :class="pack.enabled ? 'badge-success' : 'badge-muted'"
+                        x-text="pack.enabled ? t('Enabled') : t('Disabled')"
+                      ></span>
+                      <span x-text="dictionaryPackCounts(pack)"></span>
+                    </div>
+                    <p
+                      class="field-error"
+                      role="alert"
+                      x-show="dictionaryPackErrors[pack.id]"
+                      x-text="t(dictionaryPackErrors[pack.id])"
+                    ></p>
+                    <details class="dictionary-pack-details">
+                      <summary x-text="t('Inspect terms and recognized variants')">
+                        Inspect terms and recognized variants
+                      </summary>
+                      <ul class="dictionary-pack-terms">
+                        <template x-for="term in pack.terms" :key="term.word">
+                          <li class="dictionary-pack-term">
+                            <span class="dictionary-pack-word" x-text="term.word"></span>
+                            <template x-if="term.aliases.length">
+                              <span class="dictionary-pack-aliases">
+                                <span
+                                  class="sr-only"
+                                  x-text="t('Recognized variants') + ': '"
+                                ></span>
+                                <span x-text="term.aliases.join(', ')"></span>
+                              </span>
+                            </template>
+                            <template x-if="!term.aliases.length">
+                              <span
+                                class="badge badge-muted"
+                                x-text="t('Recognition hint only')"
+                              ></span>
+                            </template>
+                          </li>
+                        </template>
+                      </ul>
+                      <div class="dictionary-pack-sources" x-show="pack.sources.length">
+                        <h4 x-text="t('Sources')">Sources</h4>
+                        <ul>
+                          <template
+                            x-for="source in pack.sources"
+                            :key="source.title + source.url"
+                          >
+                            <template x-if="safeExternalUrl(source.url)">
+                              <li>
+                                <a
+                                  :href="safeExternalUrl(source.url)"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  x-text="source.title"
+                                ></a>
+                              </li>
+                            </template>
+                          </template>
+                        </ul>
+                      </div>
+                    </details>
+                  </article>
+                </template>
+              </div>
+            </section>
+            <div
+              class="split-layout"
+              x-show="!loading.dictionary && !errors.dictionary"
+            >
+              <form class="add-form panel" @submit.prevent="addWord()">
+                <div class="panel-header">
+                  <div>
+                    <h2 class="section-title" x-text="t('Add word')">
+                      Add word
+                    </h2>
+                    <p
+                      class="section-description"
+                      x-text="t('Add a term for future use.')"
+                    >
+                      Add a term for future use.
+                    </p>
+                  </div>
+                  <span class="icon icon-plus" aria-hidden="true"></span>
+                </div>
+                <div class="panel-body stack">
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="new-word"
+                      x-text="t('Word or term')"
+                      >Word or term</label
+                    >
+                    <input
+                      id="new-word"
+                      class="input"
+                      type="text"
+                      x-model="newWord"
+                      :disabled="busy.word"
+                      required
+                      @invalid="$event.target.setCustomValidity(t('Please fill out this field.'))"
+                      x-effect="const message = t('Please fill out this field.'); if ($el.validity.customError) $el.setCustomValidity(message)"
+                      @input="$event.target.setCustomValidity('')"
+                    />
+                  </div>
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="word-category"
+                      x-text="t('Category')"
+                      >Category</label
+                    >
+                    <select
+                      id="word-category"
+                      class="select"
+                      x-model="newWordCategory"
+                      :disabled="busy.word"
+                    >
+                      <option value="general" x-text="t('General')">
+                        General
+                      </option>
+                      <option
+                        value="personal_names"
+                        x-text="t('Personal names')"
+                      >
+                        Personal names
+                      </option>
+                      <option value="technical" x-text="t('Technical')">
+                        Technical
+                      </option>
+                      <option value="brand" x-text="t('Brand')">Brand</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="word-aliases"
+                      x-text="t('Recognized variants (one per line)')"
+                      >Recognized variants (one per line)</label
+                    >
+                    <textarea
+                      id="word-aliases"
+                      class="textarea"
+                      rows="3"
+                      x-model="newWordAliases"
+                      :disabled="busy.word"
+                    ></textarea>
+                    <p
+                      class="field-help"
+                      x-text="t('Personal words and their variants are kept when packs change and take priority over pack variants. Save the same word again to update it.')"
+                    >
+                      Personal words and their variants are kept when packs change and take priority over pack variants. Save the same word again to update it.
+                    </p>
+                  </div>
+                  <div class="form-actions">
+                    <button
+                      class="button button-primary"
+                      type="submit"
+                      :disabled="busy.word"
+                    >
+                      <span class="icon icon-plus" aria-hidden="true"></span>
+                      <span x-text="busy.word ? t('Adding…') : t('Add')"
+                        >Add</span
+                      >
+                    </button>
+                  </div>
+                </div>
+              </form>
+              <div class="stack">
+                <section class="data-panel">
+                  <div class="panel-header">
+                    <div>
+                      <h2 class="section-title" x-text="t('Words')">Words</h2>
+                      <p
+                        class="section-description"
+                        x-text="t('{count} items', { count: dictionary.entries.length })"
+                      ></p>
+                    </div>
+                  </div>
+                  <div class="table-scroll" x-show="dictionary.entries.length">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th x-text="t('Word')">Word</th>
+                          <th x-text="t('Source')">Source</th>
+                          <th x-text="t('Category')">Category</th>
+                          <th x-text="t('Recognized variants')">
+                            Recognized variants
+                          </th>
+                          <th x-text="t('Frequency')">Frequency</th>
+                          <th>
+                            <span class="sr-only" x-text="t('Actions')"
+                              >Actions</span
+                            >
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template
+                          x-for="entry in dictionary.entries"
+                          :key="entry.word"
+                        >
+                          <tr>
+                            <td class="text-cell" x-text="entry.word"></td>
+                            <td>
+                              <span
+                                class="badge"
+                                :class="entry.source === 'manual' ? 'badge-accent' : 'badge-success'"
+                                x-text="({ manual: t('Manual'), learned: t('Learned'), 'auto-learned': t('Learned'), auto: t('Automatic') })[entry.source] || entry.source"
+                              ></span>
+                            </td>
+                            <td
+                              x-text="({ general: t('General'), personal_names: t('Personal names'), technical: t('Technical'), brand: t('Brand') })[entry.category] || entry.category"
+                            ></td>
+                            <td class="dictionary-aliases">
+                              <template x-if="entry.aliases && entry.aliases.length">
+                                <ul>
+                                  <template x-for="alias in entry.aliases" :key="alias">
+                                    <li x-text="alias"></li>
+                                  </template>
+                                </ul>
+                              </template>
+                              <span
+                                class="muted"
+                                x-show="!entry.aliases || !entry.aliases.length"
+                                x-text="t('No recognized variants')"
+                              ></span>
+                            </td>
+                            <td x-text="formatNumber(entry.frequency)"></td>
+                            <td class="table-actions">
+                              <button
+                                class="icon-button"
+                                type="button"
+                                @click="requestConfirmation('Delete word?', 'The word will be removed from the dictionary.', () => removeWord(entry.word))"
+                                :disabled="busy.word"
+                                :aria-label="t('Delete word')"
+                              >
+                                <span
+                                  class="icon icon-trash"
+                                  aria-hidden="true"
+                                ></span>
+                              </button>
+                            </td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="empty-state" x-show="!dictionary.entries.length">
+                    <span class="empty-icon" aria-hidden="true"
+                      ><span class="icon icon-book"></span
+                    ></span>
+                    <h3
+                      class="empty-title"
+                      x-text="t('No words in the dictionary')"
+                    >
+                      No words in the dictionary
+                    </h3>
+                    <p
+                      class="empty-description"
+                      x-text="t('Add a name, brand, or technical term to get started.')"
+                    >
+                      Add a name, brand, or technical term to get started.
+                    </p>
+                  </div>
+                </section>
+                <section class="data-panel">
+                  <div class="panel-header">
+                    <div>
+                      <h2
+                        class="section-title"
+                        x-text="t('Learned corrections')"
+                      >
+                        Learned corrections
+                      </h2>
+                      <p
+                        class="section-description"
+                        x-text="t('{count} items', { count: dictionary.corrections.length })"
+                      ></p>
+                    </div>
+                  </div>
+                  <div
+                    class="table-scroll"
+                    x-show="dictionary.corrections.length"
+                  >
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th x-text="t('Heard')">Heard</th>
+                          <th x-text="t('Corrected')">Corrected</th>
+                          <th x-text="t('Times')">Times</th>
+                          <th x-text="t('Last seen')">Last seen</th>
+                          <th>
+                            <span class="sr-only" x-text="t('Actions')"
+                              >Actions</span
+                            >
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template
+                          x-for="(corr, index) in dictionary.corrections"
+                          :key="index"
+                        >
+                          <tr>
+                            <td class="text-cell" x-text="corr.heard"></td>
+                            <td class="text-cell" x-text="corr.corrected"></td>
+                            <td x-text="formatNumber(corr.count)"></td>
+                            <td x-text="formatDate(corr.last_seen)"></td>
+                            <td class="table-actions">
+                              <button
+                                class="icon-button"
+                                type="button"
+                                @click="requestConfirmation('Delete correction?', 'The learned correction will be removed.', () => removeCorrection(index))"
+                                :disabled="busy.word"
+                                :aria-label="t('Delete correction')"
+                              >
+                                <span
+                                  class="icon icon-trash"
+                                  aria-hidden="true"
+                                ></span>
+                              </button>
+                            </td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div
+                    class="empty-state"
+                    x-show="!dictionary.corrections.length"
+                  >
+                    <span class="empty-icon" aria-hidden="true"
+                      ><span class="icon icon-book"></span
+                    ></span>
+                    <h3
+                      class="empty-title"
+                      x-text="t('No learned corrections')"
+                    >
+                      No learned corrections
+                    </h3>
+                    <p
+                      class="empty-description"
+                      x-text="t('Automatic corrections will appear here.')"
+                    >
+                      Automatic corrections will appear here.
+                    </p>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </section>
+
+          <section x-show="currentPage === 'snippets'" x-cloak>
+            <header class="page-header">
+              <div>
+                <h1
+                  :id="currentPage === 'snippets' ? 'page-heading' : null"
+                  class="page-title"
+                  tabindex="-1"
+                  x-text="t('Voice shortcuts')"
+                >
+                  Voice shortcuts
+                </h1>
+                <p
+                  class="page-description"
+                  x-text="t('Use trigger phrases to insert recurring responses and text.')"
+                >
+                  Use trigger phrases to insert recurring responses and text.
+                </p>
+              </div>
+            </header>
+            <div class="loading-state" x-show="loading.snippets">
+              <span class="skeleton"></span><span class="skeleton"></span>
+            </div>
+            <div class="error-banner" x-show="errors.snippets" role="alert">
+              <span class="icon icon-alert-circle" aria-hidden="true"></span>
+              <span x-text="t(errors.snippets)"></span>
+              <button
+                class="button button-quiet"
+                type="button"
+                @click="loadSnippets()"
+              >
+                <span x-text="t('Retry')">Retry</span>
+              </button>
+            </div>
+            <div
+              class="split-layout"
+              x-show="!loading.snippets && !errors.snippets"
+            >
+              <form class="add-form panel" @submit.prevent="addSnippet()">
+                <div class="panel-header">
+                  <div>
+                    <h2 class="section-title" x-text="t('Add snippet')">
+                      Add snippet
+                    </h2>
+                    <p
+                      class="section-description"
+                      x-text="t('Define the spoken phrase and inserted text.')"
+                    >
+                      Define the spoken phrase and inserted text.
+                    </p>
+                  </div>
+                  <span class="icon icon-plus" aria-hidden="true"></span>
+                </div>
+                <div class="panel-body stack">
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="snippet-trigger"
+                      x-text="t('Trigger phrase')"
+                      >Trigger phrase</label
+                    >
+                    <input
+                      id="snippet-trigger"
+                      class="input"
+                      type="text"
+                      x-model="newSnippetTrigger"
+                      :disabled="busy.snippet"
+                      :placeholder="t('e.g. my email')"
+                      placeholder="e.g. my email"
+                      required
+                      @invalid="$event.target.setCustomValidity(t('Please fill out this field.'))"
+                      x-effect="const message = t('Please fill out this field.'); if ($el.validity.customError) $el.setCustomValidity(message)"
+                      @input="$event.target.setCustomValidity('')"
+                    />
+                  </div>
+                  <div class="field">
+                    <label
+                      class="field-label"
+                      for="snippet-expansion"
+                      x-text="t('Expansion')"
+                      >Expansion</label
+                    >
+                    <textarea
+                      id="snippet-expansion"
+                      class="textarea"
+                      x-model="newSnippetExpansion"
+                      :disabled="busy.snippet"
+                      rows="4"
+                      :placeholder="t('e.g. hello@example.com')"
+                      placeholder="e.g. hello@example.com"
+                      required
+                      @invalid="$event.target.setCustomValidity(t('Please fill out this field.'))"
+                      x-effect="const message = t('Please fill out this field.'); if ($el.validity.customError) $el.setCustomValidity(message)"
+                      @input="$event.target.setCustomValidity('')"
+                    ></textarea>
+                  </div>
+                  <div class="form-actions">
+                    <button
+                      class="button button-primary"
+                      type="submit"
+                      :disabled="busy.snippet"
+                    >
+                      <span class="icon icon-plus" aria-hidden="true"></span>
+                      <span x-text="busy.snippet ? t('Adding…') : t('Add')"
+                        >Add</span
+                      >
+                    </button>
+                  </div>
+                </div>
+              </form>
+              <section class="data-panel">
+                <div class="panel-header">
+                  <div>
+                    <h2 class="section-title" x-text="t('Configured snippets')">
+                      Configured snippets
+                    </h2>
+                    <p
+                      class="section-description"
+                      x-text="t('{count} items', { count: snippets.length })"
+                    ></p>
+                  </div>
+                </div>
+                <div class="table-scroll" x-show="snippets.length">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th x-text="t('Trigger')">Trigger</th>
+                        <th x-text="t('Expansion')">Expansion</th>
+                        <th>
+                          <span class="sr-only" x-text="t('Actions')"
+                            >Actions</span
+                          >
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template
+                        x-for="snippet in snippets"
+                        :key="snippet.trigger"
+                      >
+                        <tr>
+                          <td class="mono" x-text="snippet.trigger"></td>
+                          <td
+                            class="snippet-expansion"
+                            x-text="snippet.expansion"
+                          ></td>
+                          <td class="table-actions">
+                            <button
+                              class="icon-button"
+                              type="button"
+                              @click="requestConfirmation('Delete snippet?', 'The voice shortcut will be removed.', () => removeSnippet(snippet.trigger))"
+                              :disabled="busy.snippet"
+                              :aria-label="t('Delete snippet')"
+                            >
+                              <span
+                                class="icon icon-trash"
+                                aria-hidden="true"
+                              ></span>
+                            </button>
+                          </td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="empty-state" x-show="!snippets.length">
+                  <span class="empty-icon" aria-hidden="true"
+                    ><span class="icon icon-bolt"></span
+                  ></span>
+                  <h2 class="empty-title" x-text="t('No snippets configured')">
+                    No snippets configured
+                  </h2>
+                  <p
+                    class="empty-description"
+                    x-text="t('Create a shortcut to insert text you use often.')"
+                  >
+                    Create a shortcut to insert text you use often.
+                  </p>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section x-show="currentPage === 'models'" x-cloak>
+            <header class="page-header">
+              <div>
+                <h1
+                  :id="currentPage === 'models' ? 'page-heading' : null"
+                  class="page-title"
+                  tabindex="-1"
+                  x-text="t('Whisper models')"
+                >
+                  Whisper models
+                </h1>
+                <p
+                  class="page-description"
+                  x-text="t('Download and manage models available for local transcription.')"
+                >
+                  Download and manage models available for local transcription.
+                </p>
+              </div>
+              <div class="page-actions">
+                <div class="field">
+                  <label
+                    class="field-label"
+                    for="model-backend"
+                    x-text="t('Model format')"
+                    >Model format</label
+                  >
+                  <select
+                    id="model-backend"
+                    class="select"
+                    x-model="modelBackend"
+                    @change="selectModelBackend(modelBackend)"
+                  >
+                    <option
+                      value="faster-whisper"
+                      x-text="t('faster-whisper (CPU / CUDA)')"
+                    >
+                      faster-whisper (CPU / CUDA)
+                    </option>
+                    <option
+                      value="whisper-cpp"
+                      x-text="t('whisper.cpp (AMD / Vulkan)')"
+                    >
+                      whisper.cpp (AMD / Vulkan)
+                    </option>
+                  </select>
+                </div>
+                <span
+                  class="badge badge-muted"
+                  x-show="!loading.diskUsage && !errors.diskUsage"
+                  x-text="t('Total usage: {size} MB', { size: formatNumber(diskUsage.mb || 0) })"
+                ></span>
+                <button
+                  class="button button-quiet"
+                  type="button"
+                  @click="loadModels(modelBackend); loadDiskUsage()"
+                >
+                  <span class="icon icon-refresh" aria-hidden="true"></span>
+                  <span x-text="t('Refresh')">Refresh</span>
+                </button>
+              </div>
+            </header>
+            <p
+              class="settings-notice"
+              x-show="modelBackend === 'whisper-cpp'"
+              x-text="t('GGML models are stored separately. Vulkan acceleration requires the AMD runtime and a Vulkan-capable driver.')"
+            >
+              GGML models are stored separately. Vulkan acceleration requires
+              the AMD runtime and a Vulkan-capable driver.
+            </p>
+
+            <div class="error-banner" x-show="errors.diskUsage" role="alert">
+              <span class="icon icon-alert-circle" aria-hidden="true"></span>
+              <span x-text="t(errors.diskUsage)"></span>
+              <button
+                class="button button-quiet"
+                type="button"
+                @click="loadDiskUsage()"
+              >
+                <span x-text="t('Retry')">Retry</span>
+              </button>
+            </div>
+            <div class="loading-state" x-show="loading.models">
+              <span class="skeleton"></span><span class="skeleton"></span
+              ><span class="skeleton"></span>
+            </div>
+            <div class="error-banner" x-show="errors.models" role="alert">
+              <span class="icon icon-alert-circle" aria-hidden="true"></span>
+              <span x-text="t(errors.models)"></span>
+              <button
+                class="button button-quiet"
+                type="button"
+                @click="loadModels(modelBackend)"
+              >
+                <span x-text="t('Retry')">Retry</span>
+              </button>
+            </div>
+            <div
+              class="model-grid"
+              x-show="!loading.models && !errors.models && models.length"
+            >
+              <template
+                x-for="model in models"
+                :key="model.backend + ':' + model.name"
+              >
+                <article
+                  class="model-card"
+                  :class="{ 'is-active': model.active }"
+                >
+                  <div class="model-heading">
+                    <div>
+                      <h2 x-text="model.name"></h2>
+                      <p
+                        class="model-size"
+                        x-text="t('~{size} MB', { size: formatNumber(model.size_mb) })"
+                      ></p>
+                    </div>
+                    <span
+                      class="badge badge-accent"
+                      x-show="model.active"
+                      x-text="t('Active')"
+                      >Active</span
+                    >
+                  </div>
+                  <div class="model-footer">
+                    <span
+                      class="badge"
+                      :class="model.downloaded ? 'badge-success' : 'badge-muted'"
+                      x-text="model.downloaded ? t('Downloaded') : t('Not downloaded')"
+                    ></span>
+                    <div class="inline">
+                      <button
+                        class="button button-primary"
+                        type="button"
+                        x-show="!model.downloaded"
+                        @click="downloadModel(model.name, model.backend)"
+                        :disabled="isModelBusy(model.backend, model.name)"
+                      >
+                        <span
+                          class="icon icon-download"
+                          aria-hidden="true"
+                        ></span>
+                        <span
+                          x-text="isModelDownloading(model.backend, model.name) ? t('Downloading…') : t('Download')"
+                        ></span>
+                      </button>
+                      <button
+                        class="button button-danger"
+                        type="button"
+                        x-show="model.downloaded && !model.active"
+                        @click="requestConfirmation('Delete model?', 'The model will be removed from this computer.', () => deleteModel(model.name, model.backend))"
+                        :disabled="isModelBusy(model.backend, model.name)"
+                      >
+                        <span
+                          x-text="isModelDeleting(model.backend, model.name) ? t('Deleting…') : t('Delete')"
+                          >Delete</span
+                        >
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              </template>
+            </div>
+            <div
+              class="empty-state"
+              x-show="!loading.models && !errors.models && !models.length"
+            >
+              <span class="empty-icon" aria-hidden="true"
+                ><span class="icon icon-database"></span
+              ></span>
+              <h2 class="empty-title" x-text="t('No models available')">
+                No models available
+              </h2>
+              <p
+                class="empty-description"
+                x-text="t('Refresh the list to check the models offered by the app.')"
+              >
+                Refresh the list to check the models offered by the app.
+              </p>
+              <button
+                class="button button-secondary"
+                type="button"
+                @click="loadModels(modelBackend)"
+              >
+                <span x-text="t('Refresh models')">Refresh models</span>
+              </button>
+            </div>
+          </section>
+        </main>
+      </div>
     </div>
-</div>
 
-<script>
-function app() {
-    return {
-        darkMode: localStorage.getItem('darkMode') === 'true' || true,
-        currentPage: 'dashboard',
-        toast: { show: false, message: '', type: 'success' },
+    <div
+      class="toast"
+      x-show="toast.show"
+      x-cloak
+      :class="{ 'toast-error': toast.type === 'error' }"
+      :role="toast.type === 'error' ? 'alert' : 'status'"
+      aria-live="polite"
+    >
+      <span x-text="t(toast.message, toast.params || {})"></span>
+    </div>
 
-        // Nav items
-        navItems: [
-            { id: 'dashboard', label: 'Dashboard', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>' },
-            { id: 'config', label: 'Configurações', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>' },
-            { id: 'history', label: 'Histórico', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>' },
-            { id: 'dictionary', label: 'Dicionário', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>' },
-            { id: 'snippets', label: 'Snippets', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>' },
-            { id: 'models', label: 'Modelos', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>' },
-        ],
-
-        // Data
-        status: { version: '...', status: 'loading' },
-        stats: {},
-        config: { audio: {}, stt: {}, ai: {}, hotkey: {}, injection: {}, history: {}, adaptive: {} },
-        configOpen: { stt: false, audio: false, ai: false, hotkey: false, injection: false, historyConf: false },
-        historyEntries: [],
-        historySearch: '',
-        historyPage: 1,
-        historyLimit: 20,
-        historyTotal: 0,
-        historyHasMore: false,
-        recentHistory: [],
-        dictionary: { entries: [], corrections: [] },
-        snippets: [],
-        models: [],
-        diskUsage: { mb: 0 },
-        newWord: '',
-        newWordCategory: 'general',
-        newSnippetTrigger: '',
-        newSnippetExpansion: '',
-
-        async init() {
-            if (localStorage.getItem('darkMode') === null) {
-                this.darkMode = true;
-            }
-            await Promise.all([
-                this.loadStatus(),
-                this.loadStats(),
-                this.loadConfig(),
-                this.loadHistory(),
-                this.loadRecentHistory(),
-                this.loadDictionary(),
-                this.loadSnippets(),
-                this.loadModels(),
-                this.loadDiskUsage(),
-            ]);
-        },
-
-        showToast(message, type = 'success') {
-            this.toast = { show: true, message, type };
-            setTimeout(() => this.toast.show = false, 3000);
-        },
-
-        formatDate(ts) {
-            if (!ts) return '';
-            const d = new Date(ts);
-            return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        },
-
-        async copyToClipboard(text) {
-            await navigator.clipboard.writeText(text);
-            this.showToast('Copiado para o clipboard!');
-        },
-
-        // API helpers
-        async api(url, opts = {}) {
-            try {
-                const res = await fetch(url, {
-                    headers: { 'Content-Type': 'application/json' },
-                    ...opts,
-                });
-                return await res.json();
-            } catch (e) {
-                this.showToast('Erro de conexão com o servidor', 'error');
-                return null;
-            }
-        },
-
-        // Loaders
-        async loadStatus() { const d = await this.api('/api/status'); if (d) this.status = d; },
-        async loadStats() { const d = await this.api('/api/history/stats'); if (d) this.stats = d; },
-        async loadConfig() { const d = await this.api('/api/config'); if (d) this.config = d; },
-
-        async loadHistory() {
-            const q = this.historySearch ? `&q=${encodeURIComponent(this.historySearch)}` : '';
-            const d = await this.api(`/api/history?page=${this.historyPage}&limit=${this.historyLimit}${q}`);
-            if (d) {
-                this.historyEntries = d.entries;
-                this.historyTotal = d.total;
-                this.historyHasMore = d.has_more;
-            }
-        },
-
-        async loadRecentHistory() {
-            const d = await this.api('/api/history?page=1&limit=5');
-            if (d) this.recentHistory = d.entries;
-        },
-
-        async loadDictionary() { const d = await this.api('/api/dictionary'); if (d) this.dictionary = d; },
-        async loadSnippets() { const d = await this.api('/api/snippets'); if (d) this.snippets = d.snippets; },
-        async loadModels() { const d = await this.api('/api/models'); if (d) this.models = d.models.map(m => ({...m, downloading: false})); },
-        async loadDiskUsage() { const d = await this.api('/api/models/disk-usage'); if (d) this.diskUsage = d; },
-
-        // Config
-        async saveConfig() {
-            const d = await this.api('/api/config', { method: 'PUT', body: JSON.stringify(this.config) });
-            if (d && d.status === 'ok') this.showToast('Configuração salva!');
-        },
-
-        async resetConfig() {
-            await this.api('/api/config/reset', { method: 'POST' });
-            await this.loadConfig();
-            this.showToast('Configuração resetada para os padrões');
-        },
-
-        // History
-        async deleteHistoryEntry(id) {
-            const d = await this.api(`/api/history/${id}`, { method: 'DELETE' });
-            if (d && d.status === 'ok') { this.showToast('Transcrição excluída'); await this.loadHistory(); await this.loadStats(); }
-        },
-
-        async clearHistory() {
-            const d = await this.api('/api/history', { method: 'DELETE' });
-            if (d && d.status === 'ok') { this.showToast(d.message); await this.loadHistory(); await this.loadStats(); await this.loadRecentHistory(); }
-        },
-
-        // Dictionary
-        async addWord() {
-            if (!this.newWord.trim()) return;
-            const d = await this.api('/api/dictionary/words', { method: 'POST', body: JSON.stringify({ word: this.newWord, category: this.newWordCategory }) });
-            if (d && d.status === 'ok') { this.showToast(d.message); this.newWord = ''; await this.loadDictionary(); }
-        },
-
-        async removeWord(word) {
-            const d = await this.api(`/api/dictionary/words/${encodeURIComponent(word)}`, { method: 'DELETE' });
-            if (d && d.status === 'ok') { this.showToast(d.message); await this.loadDictionary(); }
-        },
-
-        async removeCorrection(index) {
-            const d = await this.api(`/api/dictionary/corrections/${index}`, { method: 'DELETE' });
-            if (d && d.status === 'ok') { this.showToast(d.message); await this.loadDictionary(); }
-        },
-
-        // Snippets
-        async addSnippet() {
-            if (!this.newSnippetTrigger.trim() || !this.newSnippetExpansion.trim()) return;
-            const d = await this.api('/api/snippets', { method: 'POST', body: JSON.stringify({ trigger: this.newSnippetTrigger, expansion: this.newSnippetExpansion }) });
-            if (d && d.status === 'ok') { this.showToast(d.message); this.newSnippetTrigger = ''; this.newSnippetExpansion = ''; await this.loadSnippets(); }
-        },
-
-        async removeSnippet(trigger) {
-            const d = await this.api(`/api/snippets/${encodeURIComponent(trigger)}`, { method: 'DELETE' });
-            if (d && d.status === 'ok') { this.showToast(d.message); await this.loadSnippets(); }
-        },
-
-        // Models
-        async downloadModel(name) {
-            const model = this.models.find(m => m.name === name);
-            if (model) model.downloading = true;
-            this.showToast(`Iniciando download do modelo '${name}'...`, 'info');
-            const d = await this.api(`/api/models/${name}/download`, { method: 'POST' });
-            if (model) model.downloading = false;
-            if (d && d.status === 'ok') { this.showToast(d.message); await this.loadModels(); await this.loadDiskUsage(); }
-            else if (d) { this.showToast(d.message, 'error'); }
-        },
-
-        async deleteModel(name) {
-            if (!confirm(`Excluir o modelo '${name}'?`)) return;
-            const d = await this.api(`/api/models/${name}`, { method: 'DELETE' });
-            if (d && d.status === 'ok') { this.showToast(d.message); await this.loadModels(); await this.loadDiskUsage(); }
-        },
-    };
-}
-</script>
-
-</body>
+    <dialog
+      id="confirmation-dialog"
+      class="confirmation-dialog"
+      aria-labelledby="confirmation-title"
+      aria-describedby="confirmation-message"
+    >
+      <div class="panel-header">
+        <span class="icon icon-alert-circle" aria-hidden="true"></span>
+        <h2
+          id="confirmation-title"
+          class="section-title"
+          x-text="t(confirmation.title, confirmation.params || {})"
+        ></h2>
+      </div>
+      <div class="panel-body">
+        <p
+          id="confirmation-message"
+          class="section-description"
+          x-text="t(confirmation.message, confirmation.params || {})"
+        ></p>
+        <div class="dialog-actions">
+          <button
+            class="button button-secondary"
+            type="button"
+            @click="cancelConfirmation()"
+            x-text="t('Cancel')"
+          >
+            Cancel
+          </button>
+          <button
+            class="button button-danger"
+            type="button"
+            data-confirm-action
+            @click="confirmAction()"
+            x-text="t('Confirm')"
+          >
+            Confirm
+          </button>
+        </div>
+      </div>
+    </dialog>
+  </body>
 </html>

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import io
+import os
 import wave
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -13,6 +13,20 @@ import pytest
 from linux_whispr.config import AppConfig
 from linux_whispr.events import EventBus
 
+
+@pytest.fixture(scope="session")
+def qt_app() -> object:
+    """Provide the shared offscreen QApplication for native UI tests."""
+    previous_platform = os.environ.get("QT_QPA_PLATFORM")
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    from linux_whispr.ui.desktop import ensure_application
+
+    app = ensure_application()
+    yield app
+    if previous_platform is None:
+        os.environ.pop("QT_QPA_PLATFORM", None)
+    else:
+        os.environ["QT_QPA_PLATFORM"] = previous_platform
 
 @pytest.fixture
 def event_bus() -> EventBus:

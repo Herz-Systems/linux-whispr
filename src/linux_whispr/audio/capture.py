@@ -63,10 +63,8 @@ class AudioCapture:
                 return
 
             self._frames = []
-            self._recording = True
             self._start_time = time.monotonic()
-
-            self._stream = sd.InputStream(
+            stream = sd.InputStream(
                 samplerate=self._sample_rate,
                 channels=AUDIO_CHANNELS,
                 dtype=AUDIO_DTYPE,
@@ -74,7 +72,21 @@ class AudioCapture:
                 device=self._device,
                 callback=self._audio_callback,
             )
-            self._stream.start()
+            self._stream = stream
+            self._recording = True
+            try:
+                stream.start()
+            except Exception:
+                self._recording = False
+                self._stream = None
+                try:
+                    stream.close()
+                except Exception:
+                    logger.warning(
+                        "Failed to close microphone stream after startup failure",
+                        exc_info=True,
+                    )
+                raise
             logger.info("Recording started (device=%s, rate=%d)", self._device, self._sample_rate)
 
     def stop(self) -> bytes | None:

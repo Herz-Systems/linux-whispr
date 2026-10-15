@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -15,10 +15,9 @@ from linux_whispr.web.api.config_routes import router as config_router
 from linux_whispr.web.api.dictionary_routes import router as dictionary_router
 from linux_whispr.web.api.history_routes import router as history_router
 from linux_whispr.web.api.models_routes import router as models_router
+from linux_whispr.web.api.ollama_routes import router as ollama_router
 from linux_whispr.web.api.snippets_routes import router as snippets_router
 from linux_whispr.web.api.status_routes import router as status_router
-
-logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -28,6 +27,19 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url=None,
 )
+
+
+def set_runtime_status_provider(
+    provider: Callable[[], dict[str, bool | str]] | None,
+) -> None:
+    """Attach the combined application's live runtime status to this dashboard."""
+    app.state.runtime_status_provider = provider
+
+
+def set_dictionary_provider(provider: Callable[[], object] | None) -> None:
+    """Attach the combined application's live dictionary to this dashboard."""
+    app.state.dictionary_provider = provider
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -43,17 +55,12 @@ app.include_router(history_router, prefix="/api")
 app.include_router(dictionary_router, prefix="/api")
 app.include_router(snippets_router, prefix="/api")
 app.include_router(models_router, prefix="/api")
+app.include_router(ollama_router, prefix="/api")
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/")
 async def serve_index() -> FileResponse:
     """Serve the SPA index page."""
     return FileResponse(STATIC_DIR / "index.html", media_type="text/html")
-
-
-def run_server(host: str = "127.0.0.1", port: int = 7865) -> None:
-    """Start the web dashboard server."""
-    import uvicorn
-
-    logger.info("Starting LinuxWhispr Web Dashboard on http://%s:%d", host, port)
-    uvicorn.run(app, host=host, port=port, log_level="info")

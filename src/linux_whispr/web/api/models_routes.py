@@ -1,13 +1,13 @@
-"""Model management API routes."""
+"""Backend-scoped model management API routes."""
 
 from __future__ import annotations
 
-from dataclasses import asdict
-
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from starlette.concurrency import run_in_threadpool
 
 from linux_whispr.config import AppConfig
-from linux_whispr.stt.model_manager import ModelManager
+from linux_whispr.constants import SUPPORTED_WHISPER_CPP_MODELS, SUPPORTED_WHISPER_MODELS
+from linux_whispr.stt.model_manager import ModelManager, SUPPORTED_MODEL_BACKENDS
 
 router = APIRouter(tags=["models"])
 
@@ -16,44 +16,88 @@ def _get_model_manager() -> ModelManager:
     return ModelManager()
 
 
+def _validate_backend(backend: str) -> str:
+    if backend not in SUPPORTED_MODEL_BACKENDS:
+        supported = ", ".join(SUPPORTED_MODEL_BACKENDS)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported model backend '{backend}'; expected one of: {supported}",
+        )
+    return backend
+
+
+def _validate_model_name(name: str, backend: str) -> None:
+    supported_models = (
+        SUPPORTED_WHISPER_CPP_MODELS if backend == "whisper-cpp" else SUPPORTED_WHISPER_MODELS
+    )
+    if name not in supported_models:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported model '{name}' for backend '{backend}'",
+        )
+
+
 @router.get("/models")
-async def list_models() -> dict:
-    """List all supported Whisper models with download status."""
-    mm = _get_model_manager()
+async def list_models(backend: str = "faster-whisper") -> dict:
+    """List supported models and download status for one model backend."""
+    backend = _validate_backend(backend)
+    manager = _get_model_manager()
     config = AppConfig.load()
-    models = mm.list_models()
+    models = manager.list_models(backend=backend)
+    configured_model_is_available = any(model.name == config.stt.model for model in models)
+    active_model = (
+        config.stt.model
+        if config.stt.backend == backend and configured_model_is_available
+        else None
+    )
     return {
+        "backend": backend,
         "models": [
             {
-                "name": m.name,
-                "size_mb": m.size_mb,
-                "downloaded": m.downloaded,
-                "active": m.name == config.stt.model,
+                "name": model.name,
+                "size_mb": model.size_mb,
+                "downloaded": model.downloaded,
+                "active": model.name == active_model,
+                "backend": backend,
             }
-            for m in models
+            for model in models
         ],
-        "active_model": config.stt.model,
+        "active_model": active_model,
     }
 
 
 @router.post("/models/{name}/download")
-async def download_model(name: str) -> dict:
-    """Download a Whisper model."""
-    mm = _get_model_manager()
+async def download_model(name: str, backend: str = "faster-whisper") -> dict:
+    """Download one backend-specific model without blocking the event loop."""
+    backend = _validate_backend(backend)
+    _validate_model_name(name, backend)
+    manager = _get_model_manager()
     try:
-        mm.download(name)
-        return {"status": "ok", "message": f"Model '{name}' downloaded"}
-    except ValueError as e:
-        return {"status": "error", "message": str(e)}
-    except Exception as e:
-        return {"status": "error", "message": f"Download failed: {e}"}
+        await run_in_threadpool(manager.download, name, backend=backend)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        return {"status": "error", "message": f"Download failed: {error}"}
+    return {"status": "ok", "message": f"Model '{name}' downloaded"}
 
 
 @router.delete("/models/{name}")
-async def delete_model(name: str) -> dict:
-    """Delete a downloaded model."""
-    mm = _get_model_manager()
-    deleted = mm.delete(name)
+async def delete_model(name: str, backend: str = "faster-whisper") -> dict:
+    """Delete one non-active backend-specific model."""
+    backend = _validate_backend(backend)
+    _validate_model_name(name, backend)
+    config = AppConfig.load()
+    if config.stt.backend == backend and config.stt.model == name:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete active model '{name}' for backend '{backend}'",
+        )
+
+    manager = _get_model_manager()
+    try:
+        deleted = await run_in_threadpool(manager.delete, name, backend=backend)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     if deleted:
         return {"status": "ok", "message": f"Model '{name}' deleted"}
     return {"status": "error", "message": f"Model '{name}' not found or not downloaded"}
@@ -62,8 +106,8 @@ async def delete_model(name: str) -> dict:
 @router.get("/models/disk-usage")
 async def get_disk_usage() -> dict:
     """Get total disk usage of downloaded models."""
-    mm = _get_model_manager()
-    usage_bytes = mm.get_disk_usage()
+    manager = _get_model_manager()
+    usage_bytes = manager.get_disk_usage()
     return {
         "bytes": usage_bytes,
         "mb": round(usage_bytes / (1024 * 1024), 1),

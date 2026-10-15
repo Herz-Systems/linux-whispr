@@ -50,11 +50,13 @@ class AudioConfig:
 class STTConfig:
     """Speech-to-text configuration."""
 
-    backend: str = "faster-whisper"  # "faster-whisper" | "openai" | "groq"
+    backend: str = "faster-whisper"  # "faster-whisper" | "whisper-cpp" | "openai" | "groq"
     model: str = DEFAULT_WHISPER_MODEL
     language: str = "pt"  # ISO 639-1 code: "pt", "en", etc. Use "auto" for auto-detect
-    device: str = "auto"  # "auto" | "cpu" | "cuda"
-    compute_type: str = "auto"  # "auto" | "float16" | "int8" | "float32"
+    device: str = (
+        "auto"  # faster-whisper: "auto" | "cpu" | "cuda"; whisper-cpp: "auto" | "cpu" | "vulkan"
+    )
+    compute_type: str = "auto"  # faster-whisper only: "auto" | "float16" | "int8" | "float32"
 
 
 @dataclass
@@ -62,7 +64,8 @@ class AIConfig:
     """AI refinement configuration."""
 
     enabled: bool = False
-    backend: str = "none"  # "none" | "local" | "openai" | "anthropic" | "groq" | "google"
+    # "none" | "local" | "ollama" | "openai" | "anthropic" | "groq" | "google"
+    backend: str = "none"
     model: str = ""
     custom_prompt: str = ""
 
@@ -106,7 +109,6 @@ class AdaptiveConfig:
 class WebConfig:
     """Web dashboard configuration."""
 
-    enabled: bool = True
     port: int = WEB_DEFAULT_PORT
     auto_open: bool = True
 

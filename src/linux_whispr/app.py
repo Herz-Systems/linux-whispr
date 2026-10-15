@@ -22,7 +22,11 @@ from linux_whispr.output.injector import TextInjector
 from linux_whispr.platform.detect import PlatformInfo, detect_platform
 from linux_whispr.stt.base import STTBackend
 from linux_whispr.stt.faster_whisper import FasterWhisperBackend
+from linux_whispr.stt.whisper_cpp import WhisperCppBackend
 from linux_whispr.ui.overlay import Overlay
+
+if TYPE_CHECKING:
+    from linux_whispr.ui.tray import SystemTray
 
 logger = logging.getLogger(__name__)
 
@@ -39,13 +43,19 @@ class AppState(Enum):
 class LinuxWhispr:
     """Main application class that orchestrates the dictation pipeline.
 
-    Pipeline: Hotkey → Record → VAD auto-stop → STT → Snippets → (AI refinement) → Inject → History
+    Pipeline: Hotkey → Record → VAD auto-stop → STT → Snippets → (AI refinement) →
+    Dictionary corrections → Inject → History
     """
 
-    def __init__(self, config: AppConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: AppConfig | None = None,
+        enable_tray: bool = True,
+    ) -> None:
         self._config = config or AppConfig.load()
         self._event_bus: EventBus = event_bus
         self._state = AppState.IDLE
+        self._tray_enabled = enable_tray
         self._platform: PlatformInfo | None = None
 
         # Core components (initialized in setup())
@@ -64,7 +74,7 @@ class LinuxWhispr:
 
         # UI components
         self._overlay: Overlay | None = None
-        self._tray: object | None = None
+        self._tray: SystemTray | None = None
 
         # AI refinement
         self._refinement: object | None = None
@@ -72,6 +82,7 @@ class LinuxWhispr:
         # Web dashboard
         self._web_server: object | None = None
         self._web_thread: threading.Thread | None = None
+        self._web_stopping = False
 
         # VAD monitoring
         self._vad_thread: threading.Thread | None = None
@@ -88,6 +99,9 @@ class LinuxWhispr:
 
     def setup(self) -> None:
         """Initialize all components."""
+        from linux_whispr.ui.desktop import ensure_application
+
+        ensure_application()
         logger.info("Setting up LinuxWhispr...")
 
         # Detect platform
@@ -148,17 +162,15 @@ class LinuxWhispr:
         self._overlay = Overlay(self._event_bus)
         self._overlay.setup()
 
-        # Initialize system tray
-        self._setup_tray()
+        # Initialize the system tray unless explicitly disabled by the CLI.
+        if self._tray_enabled:
+            self._setup_tray()
 
         # Register event handlers
         self._event_bus.on("audio.ready", self._on_audio_ready)
 
-        # Setup hotkeys
+        # Prepare global hotkeys. Listening begins in start(), alongside the dashboard.
         self._setup_hotkeys()
-
-        # Start web dashboard (if enabled)
-        self._setup_web_dashboard()
 
         logger.info("LinuxWhispr setup complete")
 
@@ -171,6 +183,11 @@ class LinuxWhispr:
                 model_name=self._config.stt.model,
                 device=self._config.stt.device,
                 compute_type=self._config.stt.compute_type,
+            )
+        elif backend == "whisper-cpp":
+            return WhisperCppBackend(
+                model_name=self._config.stt.model,
+                device=self._config.stt.device,
             )
         elif backend == "openai":
             from linux_whispr.stt.openai_api import OpenAIWhisperBackend
@@ -238,76 +255,121 @@ class LinuxWhispr:
             if model_path:
                 return LocalLLMBackend(model_path=model_path)
             logger.warning("Local LLM backend requires a model path in config")
+        elif backend == "ollama":
+            from linux_whispr.ai.ollama import OllamaBackend
+
+            return OllamaBackend(model=self._config.ai.model)
         else:
             logger.warning("Unknown AI backend: %s", backend)
 
         return None
 
-    def _setup_web_dashboard(self) -> None:
-        """Start the web dashboard server in a background thread."""
-        if not self._config.web.enabled:
-            logger.debug("Web dashboard disabled in config")
-            return
-
+    def _start_web_dashboard(self) -> None:
+        """Start the dashboard and wait until it accepts connections."""
         try:
             import uvicorn
 
             from linux_whispr.web.server import app as web_app
-        except ImportError:
-            logger.debug(
-                "Web dashboard dependencies not installed (pip install linux-whispr[web])"
+            from linux_whispr.web.server import (
+                set_dictionary_provider,
+                set_runtime_status_provider,
             )
-            return
+        except ImportError as error:
+            raise RuntimeError(
+                "The dashboard dependencies are unavailable. Reinstall LinuxWhispr "
+                "with its required web dependencies."
+            ) from error
 
         port = self._config.web.port
-
-        # Check if the port is already in use
         if self._is_port_in_use(port):
-            logger.warning(
-                "Port %d already in use — web dashboard will connect to existing instance",
-                port,
+            raise RuntimeError(
+                f"Dashboard startup failed: http://127.0.0.1:{port} is already in use."
             )
-            if self._config.web.auto_open:
-                import webbrowser
 
-                url = f"http://127.0.0.1:{port}"
-                logger.info("Opening existing web dashboard: %s", url)
-                webbrowser.open(url)
-            return
-
-        config = uvicorn.Config(
-            web_app, host="127.0.0.1", port=port, log_level="warning"
-        )
+        set_runtime_status_provider(self._runtime_status)
+        set_dictionary_provider(self._live_dictionary)
+        config = uvicorn.Config(web_app, host="127.0.0.1", port=port, log_level="warning")
         server = uvicorn.Server(config)
-        self._web_server = server
+        start_error: list[BaseException] = []
+        stopped = threading.Event()
 
         def _run_server() -> None:
-            server.run()
+            try:
+                server.run()
+            except BaseException as error:
+                start_error.append(error)
+            finally:
+                stopped.set()
+                if server.started and not self._web_stopping:
+                    logger.critical(
+                        "Dashboard stopped unexpectedly; shutting down LinuxWhispr."
+                    )
+                    self._request_quit()
 
-        self._web_thread = threading.Thread(
-            target=_run_server, daemon=True, name="web-dashboard"
-        )
+        self._web_stopping = False
+        self._web_server = server
+        self._web_thread = threading.Thread(target=_run_server, name="web-dashboard")
         self._web_thread.start()
-        logger.info("Web dashboard starting on http://127.0.0.1:%d", port)
 
-        if self._config.web.auto_open:
-            def _wait_and_open_browser() -> None:
-                import time
-                import webbrowser
+        import time
 
-                url = f"http://127.0.0.1:{port}"
-                # Poll until the server is actually accepting connections
-                for _ in range(20):
-                    time.sleep(0.5)
-                    if self._is_port_in_use(port):
-                        logger.info("Opening web dashboard: %s", url)
-                        webbrowser.open(url)
-                        return
-                logger.warning("Web dashboard did not start in time, skipping browser open")
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if server.started:
+                logger.info("Web dashboard available at http://127.0.0.1:%d", port)
+                if self._config.web.auto_open:
+                    self._open_web_dashboard(port)
+                return
+            if stopped.wait(timeout=0.1):
+                break
 
-            threading.Thread(
-                target=_wait_and_open_browser, daemon=True, name="browser-open"
-            ).start()
+        self._stop_web_dashboard()
+        if start_error:
+            raise RuntimeError("Dashboard startup failed.") from start_error[0]
+        raise RuntimeError(
+            f"Dashboard startup failed: http://127.0.0.1:{port} did not become ready."
+        )
+
+    @staticmethod
+    def _open_web_dashboard(port: int) -> None:
+        """Open the ready dashboard when the user has opted in."""
+        import webbrowser
+
+        url = f"http://127.0.0.1:{port}"
+        try:
+            webbrowser.open(url)
+        except Exception:
+            logger.warning("Could not open the web dashboard at %s", url, exc_info=True)
+
+    def _runtime_status(self) -> dict[str, bool | str]:
+        """Expose the active dictation runtime to the dashboard status endpoint."""
+        return {"available": True, "state": self._state.name.lower()}
+
+    def _live_dictionary(self) -> Dictionary:
+        """Expose the single active dictionary object to dashboard mutations."""
+        if self._dictionary is None:
+            raise RuntimeError("Dictionary is unavailable before application setup.")
+        return self._dictionary
+
+    def _stop_web_dashboard(self) -> None:
+        """Stop and join the dashboard server started with this application."""
+        self._web_stopping = True
+        server = self._web_server
+        thread = self._web_thread
+        self._web_server = None
+        self._web_thread = None
+        if server is not None:
+            server.should_exit = True  # type: ignore[union-attr]
+        if thread is not None:
+            thread.join()
+
+        from linux_whispr.web.server import (
+            set_dictionary_provider,
+            set_runtime_status_provider,
+        )
+
+        set_runtime_status_provider(None)
+        set_dictionary_provider(None)
 
     @staticmethod
     def _is_port_in_use(port: int) -> bool:
@@ -319,18 +381,20 @@ class LinuxWhispr:
             return s.connect_ex(("127.0.0.1", port)) == 0
 
     def _setup_tray(self) -> None:
-        """Initialize the system tray icon."""
-        try:
-            from linux_whispr.ui.tray import SystemTray
+        """Initialize the native system tray icon."""
+        from linux_whispr.ui.tray import SystemTray
 
-            self._tray = SystemTray(
-                event_bus=self._event_bus,
-                on_toggle_dictation=self._on_dictation_hotkey,
-                on_quit=self._request_quit,
-            )
+        self._tray = SystemTray(
+            event_bus=self._event_bus,
+            on_toggle_dictation=self._on_dictation_hotkey,
+            on_open_settings=lambda: self._open_web_dashboard(self._config.web.port),
+            on_quit=self._request_quit,
+        )
+        try:
             self._tray.setup()
         except Exception:
-            logger.debug("System tray initialization failed", exc_info=True)
+            logger.exception("System tray initialization failed")
+            raise
 
     def _setup_hotkeys(self) -> None:
         """Register global hotkeys."""
@@ -345,17 +409,25 @@ class LinuxWhispr:
         self._hotkey_listener = listener
 
     def start(self) -> None:
-        """Start the application (hotkey listener, tray)."""
+        """Start dictation input and the required dashboard."""
         if self._hotkey_listener is not None:
             self._hotkey_listener.start()  # type: ignore[union-attr]
 
         if self._tray is not None:
-            self._tray.start()  # type: ignore[union-attr]
+            try:
+                self._tray.start()
+            except Exception:
+                logger.exception("System tray failed to start")
+                raise
 
+        self._start_web_dashboard()
+        self._set_state(AppState.IDLE)
         logger.info("LinuxWhispr started — press %s to dictate", self._config.hotkey.dictation)
 
     def stop(self) -> None:
-        """Stop the application and clean up."""
+        """Stop the application and every component it started."""
+        self._stop_web_dashboard()
+
         if self._hotkey_listener is not None:
             self._hotkey_listener.stop()  # type: ignore[union-attr]
 
@@ -368,11 +440,8 @@ class LinuxWhispr:
         if self._history is not None:
             self._history.close()
 
-        if self._web_server is not None:
-            self._web_server.should_exit = True  # type: ignore[union-attr]
-
         if self._tray is not None:
-            self._tray.stop()  # type: ignore[union-attr]
+            self._tray.stop()
 
         if self._overlay is not None:
             self._overlay.destroy()
@@ -381,17 +450,16 @@ class LinuxWhispr:
         logger.info("LinuxWhispr stopped")
 
     def _request_quit(self) -> None:
-        """Request application shutdown (from tray menu)."""
-        import os
-        import signal
+        """Request clean shutdown through the Qt main loop."""
+        from linux_whispr.ui.desktop import quit_desktop_loop
 
-        os.kill(os.getpid(), signal.SIGTERM)
+        quit_desktop_loop()
 
     # --- Hotkey callbacks ---
 
     def _on_dictation_hotkey(self) -> None:
         """Handle dictation hotkey press (toggle mode)."""
-        if self._state == AppState.IDLE:
+        if self._state in (AppState.IDLE, AppState.ERROR):
             self._start_recording()
         elif self._state == AppState.RECORDING:
             self._stop_recording()
@@ -403,9 +471,19 @@ class LinuxWhispr:
         assert self._audio is not None
         assert self._vad is not None
 
+        try:
+            self._vad.reset()
+            self._audio.start()
+        except Exception:
+            logger.exception("Could not start microphone recording")
+            self._event_bus.emit(
+                "app.error",
+                message="Could not start recording. Check the microphone and audio settings.",
+            )
+            self._set_state(AppState.ERROR)
+            return
+
         self._set_state(AppState.RECORDING)
-        self._vad.reset()
-        self._audio.start()
         self._event_bus.emit("hotkey.dictation.start")
 
         # Start VAD monitoring thread
@@ -424,13 +502,26 @@ class LinuxWhispr:
         self._event_bus.emit("hotkey.dictation.stop")
 
         # Stop recording returns WAV bytes and emits audio.ready
-        wav_bytes = self._audio.stop()
+        try:
+            wav_bytes = self._audio.stop()
+        except Exception:
+            logger.exception("Could not stop microphone recording")
+            self._event_bus.emit(
+                "app.error",
+                message="Could not finish recording. Check the microphone and audio settings.",
+            )
+            self._set_state(AppState.ERROR)
+            return
+
         if wav_bytes is None:
             logger.warning("No audio captured")
             self._set_state(AppState.IDLE)
 
     def _on_audio_ready(self, wav_bytes: bytes, duration: float) -> None:
         """Handle audio ready event — run full STT + refinement pipeline."""
+        if self._state != AppState.PROCESSING:
+            self._set_state(AppState.PROCESSING)
+
         # Run in a thread to avoid blocking the event bus
         threading.Thread(
             target=self._process_audio,
@@ -444,15 +535,15 @@ class LinuxWhispr:
         assert self._stt is not None
         assert self._injector is not None
 
-        # Load STT model if not loaded
-        if not self._stt.is_loaded:
-            logger.info("Loading STT model (first use)...")
-            self._event_bus.emit("stt.started")
-            self._stt.load()
-
-        # Transcribe
-        self._event_bus.emit("stt.started")
         try:
+            # Load STT model if not loaded
+            if not self._stt.is_loaded:
+                logger.info("Loading STT model (first use)...")
+                self._event_bus.emit("stt.started")
+                self._stt.load()
+
+            # Transcribe
+            self._event_bus.emit("stt.started")
             result = self._stt.transcribe(
                 wav_bytes,
                 language=self._config.stt.language,
@@ -460,10 +551,18 @@ class LinuxWhispr:
             )
         except Exception:
             logger.exception("Transcription failed")
+            self._event_bus.emit(
+                "app.error",
+                message="Transcription failed. Check the speech model and audio settings.",
+            )
             self._set_state(AppState.ERROR)
             from linux_whispr.platform.notifications import notify
 
-            notify("Transcription Failed", "Check logs for details", urgency="critical")
+            notify(
+                "Transcription Failed",
+                "Check the speech model and audio settings.",
+                urgency="critical",
+            )
             return
 
         if not result.text.strip():
@@ -502,9 +601,20 @@ class LinuxWhispr:
                     dictionary_context=dict_context,
                 )
                 if refined != final_text:
-                    refined_text = refined
                     final_text = refined
                     logger.info("Refined: %s", final_text[:100])
+
+            if self._dictionary is not None:
+                corrected = self._dictionary.apply_corrections(
+                    final_text,
+                    promotion_threshold=self._config.adaptive.promotion_threshold,
+                )
+                if corrected != final_text:
+                    final_text = corrected
+                    logger.info("Dictionary corrections applied: %s", final_text[:100])
+
+            # Store the actual injected text while preserving the transcription as raw text.
+            refined_text = final_text if final_text != raw_text else None
 
             # Inject text (FR-6)
             success = self._injector.inject(final_text)
@@ -512,8 +622,18 @@ class LinuxWhispr:
                 logger.info("Text injected (%d chars)", len(final_text))
             else:
                 logger.error("Text injection failed")
+                self._event_bus.emit(
+                    "app.error",
+                    message=(
+                        "Text injection failed. Check input permissions and the active application."
+                    ),
+                )
         except Exception:
             logger.exception("Post-transcription pipeline failed")
+            self._event_bus.emit(
+                "app.error",
+                message="Post-processing failed. Dictation was not injected.",
+            )
         finally:
             # Save to history (FR-12) — always persist, even if injection failed
             if self._history is not None:
@@ -528,10 +648,21 @@ class LinuxWhispr:
                     )
                 except Exception:
                     logger.exception("Failed to save transcription to history")
+                    self._event_bus.emit(
+                        "app.error",
+                        message="Could not save dictation history. Check storage permissions.",
+                    )
 
         # Start adaptive learning watch (FR-14)
         if self._adaptive is not None and success:
-            self._adaptive.start_watching(final_text)
+            try:
+                self._adaptive.start_watching(final_text)
+            except Exception:
+                logger.exception("Failed to start adaptive learning")
+                self._event_bus.emit(
+                    "app.error",
+                    message="Adaptive learning could not start. Dictation was still processed.",
+                )
 
         self._set_state(AppState.IDLE)
 
@@ -565,18 +696,12 @@ class LinuxWhispr:
         return None
 
     def _get_correction_context(self) -> str:
-        """Build correction context string for AI refinement prompt (FR-14.8)."""
+        """Build preferred-spelling context for optional AI refinement."""
         if self._dictionary is None:
             return ""
-
-        pairs = [
-            f"{c.corrected} (not {c.heard})"
-            for c in self._dictionary.corrections
-            if c.count >= self._config.adaptive.promotion_threshold
-        ]
-        if not pairs:
-            return ""
-        return ", ".join(pairs)
+        return self._dictionary.build_ai_context(
+            promotion_threshold=self._config.adaptive.promotion_threshold
+        )
 
     def _vad_monitor(self) -> None:
         """Monitor VAD in a separate thread to auto-stop on silence."""
