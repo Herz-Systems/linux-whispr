@@ -5,6 +5,15 @@ microphone, transcribes locally, and pastes the processed text into the focused
 application. It combines a native Qt tray and recording overlay with a local web
 dashboard.
 
+## Demo
+
+[![Watch the LinuxWhispr product demo](docs/assets/linux-whispr-demo.jpg)](docs/assets/linux-whispr-demo.mp4)
+
+[Watch the 28-second demo](docs/assets/linux-whispr-demo.mp4) — voice dictation,
+text insertion, the settings dashboard, and custom dictionary corrections.
+
+The demo shows F12; the dictation hotkey is configurable.
+
 ## Contents
 
 - [Install](#install)
