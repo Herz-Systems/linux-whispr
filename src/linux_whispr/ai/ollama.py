@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
-from linux_whispr.ai.base import LLMBackend, RefinementResult
+from linux_whispr.ai.base import LLMBackend, LLMUnavailableError, RefinementResult
+from linux_whispr.constants import DEFAULT_OLLAMA_KEEP_ALIVE_MINUTES, OLLAMA_KEEP_ALIVE_OPTIONS
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +79,7 @@ class OllamaError(RuntimeError):
     """Base error raised for an Ollama local API failure."""
 
 
-class OllamaUnavailableError(OllamaError):
+class OllamaUnavailableError(OllamaError, LLMUnavailableError):
     """Raised when the local Ollama service cannot be contacted."""
 
 
@@ -89,7 +91,7 @@ class OllamaResponseError(OllamaError):
     """Raised when Ollama returns an invalid or unsuccessful response."""
 
 
-class OllamaModelUnavailableError(OllamaError):
+class OllamaModelUnavailableError(OllamaError, LLMUnavailableError):
     """Raised when a selected model is not an eligible local completion model."""
 
 
@@ -282,25 +284,56 @@ class OllamaClient:
         warnings = [warning for _, warning in inspected if warning is not None]
         return models, warnings
 
+    def _chat_payload(
+        self,
+        model: _LocalModel,
+        messages: list[dict[str, str]],
+        keep_alive_minutes: int,
+    ) -> dict[str, Any]:
+        """Build a chat request that uses the configured generation runner."""
+        payload: dict[str, Any] = {
+            "model": model.name,
+            "messages": messages,
+            "stream": False,
+            "keep_alive": f"{keep_alive_minutes}m",
+            "options": {"temperature": 0.3, "num_ctx": 8192, "num_predict": 2048},
+        }
+        if model.can_disable_thinking:
+            payload["think"] = False
+        return payload
+
+    def preload(self, model: _LocalModel, keep_alive_minutes: int) -> None:
+        """Load a verified local model without sending it text to generate."""
+        response = self._request_json(
+            "/chat", self._chat_payload(model, [], keep_alive_minutes)
+        )
+        if _is_remote_model(response):
+            raise OllamaModelUnavailableError(
+                f"Model '{model.name}' was routed remotely and cannot be used for local refinement."
+            )
+        message = response.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if (
+            content != ""
+            or response.get("done") is not True
+            or response.get("done_reason") != "load"
+        ):
+            raise OllamaResponseError("Ollama returned an invalid model preload response.")
+
     def chat(
         self,
         model: _LocalModel,
         system_prompt: str,
         user_prompt: str,
+        keep_alive_minutes: int,
     ) -> dict[str, Any]:
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": user_prompt})
-        payload: dict[str, Any] = {
-            "model": model.name,
-            "messages": messages,
-            "stream": False,
-            "options": {"temperature": 0.3, "num_ctx": 8192, "num_predict": 2048},
-        }
-        if model.can_disable_thinking:
-            payload["think"] = False
-        return self._request_json("/chat", payload)
+        return self._request_json(
+            "/chat", self._chat_payload(model, messages, keep_alive_minutes)
+        )
 
 
 def _recommendations(installed_names: set[str]) -> list[dict[str, Any]]:
@@ -353,8 +386,21 @@ def get_ollama_model_catalog(
 class OllamaBackend(LLMBackend):
     """LLM backend that uses an installed local Ollama completion model only."""
 
-    def __init__(self, model: str, timeout: float = DEFAULT_GENERATION_TIMEOUT) -> None:
+    def __init__(
+        self,
+        model: str,
+        timeout: float = DEFAULT_GENERATION_TIMEOUT,
+        keep_alive_minutes: int = DEFAULT_OLLAMA_KEEP_ALIVE_MINUTES,
+    ) -> None:
+        if (
+            not isinstance(keep_alive_minutes, int)
+            or isinstance(keep_alive_minutes, bool)
+            or keep_alive_minutes not in OLLAMA_KEEP_ALIVE_OPTIONS
+        ):
+            allowed = ", ".join(str(value) for value in OLLAMA_KEEP_ALIVE_OPTIONS)
+            raise ValueError(f"keep_alive_minutes must be one of: {allowed}.")
         self._model = model
+        self._keep_alive_minutes = keep_alive_minutes
         self._client = OllamaClient(timeout=timeout)
 
     def is_available(self) -> bool:
@@ -365,9 +411,20 @@ class OllamaBackend(LLMBackend):
             return False
         return True
 
+    def preload(self, *, cancel_event: threading.Event | None = None) -> None:
+        """Warm the configured local model without producing a completion."""
+        if cancel_event is not None and cancel_event.is_set():
+            return
+        model = self._client.validate_model(self._model)
+        if cancel_event is not None and cancel_event.is_set():
+            return
+        self._client.preload(model, self._keep_alive_minutes)
+
     def generate(self, system_prompt: str, user_prompt: str) -> RefinementResult:
         model = self._client.validate_model(self._model)
-        response = self._client.chat(model, system_prompt, user_prompt)
+        response = self._client.chat(
+            model, system_prompt, user_prompt, self._keep_alive_minutes
+        )
         if _is_remote_model(response):
             raise OllamaModelUnavailableError(
                 f"Model '{model.name}' was routed remotely and cannot be used for local refinement."

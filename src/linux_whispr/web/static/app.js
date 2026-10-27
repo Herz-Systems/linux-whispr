@@ -5,6 +5,22 @@ const OLLAMA_RECOMMENDATION_TAGS = new Set([
   "gemma3:12b",
 ]);
 
+const IMPORT_ERROR_DETAIL_MAX_LENGTH = 500;
+
+const STATUS_REFRESH_INTERVAL_MS = 2000;
+
+const PROMPT_TEMPLATE_INSTRUCTIONS = Object.freeze({
+  default: "",
+  formal:
+    "Use a formal, professional tone while preserving the original meaning and language.",
+  casual:
+    "Use a natural, casual tone while preserving the original meaning and language.",
+  concise:
+    "Make the text concise while preserving all facts, meaning, language, and technical terms.",
+  bullets:
+    "Organize the dictated points as clear bullet points without adding or omitting content. Preserve the original language and technical terms.",
+});
+
 function app() {
   const i18n =
     (typeof window !== "undefined" && window.WhisprI18n) ||
@@ -39,12 +55,12 @@ function app() {
     toast: { show: false, message: "", type: "success", params: {} },
     confirmation: { title: "", message: "", params: {} },
     navItems: [
-      { id: "dashboard", label: "Dashboard", icon: "layout-dashboard" },
-      { id: "config", label: "Settings", icon: "settings" },
-      { id: "history", label: "History", icon: "history" },
-      { id: "dictionary", label: "Dictionary", icon: "book" },
-      { id: "snippets", label: "Snippets", icon: "bolt" },
-      { id: "models", label: "Models", icon: "database" },
+      { id: "dashboard", path: "/", label: "Dashboard", icon: "layout-dashboard" },
+      { id: "config", path: "/settings", label: "Settings", icon: "settings" },
+      { id: "history", path: "/history", label: "History", icon: "history" },
+      { id: "dictionary", path: "/dictionary", label: "Dictionary", icon: "book" },
+      { id: "snippets", path: "/snippets", label: "Snippets", icon: "bolt" },
+      { id: "models", path: "/models", label: "Models", icon: "database" },
     ],
 
     status: { version: "", status: "loading", app_name: "LinuxWhispr" },
@@ -57,8 +73,14 @@ function app() {
       injection: {},
       history: {},
       adaptive: {},
+      web: { port: 7865, auto_open: true },
+      preload_models: true,
+      autostart: false,
     },
+    promptTemplate: "default",
+
     configOpen: {
+      startup: false,
       stt: false,
       audio: false,
       ai: false,
@@ -74,6 +96,19 @@ function app() {
     historyHasMore: false,
     recentHistory: [],
     dictionary: { entries: [], corrections: [], packs: [] },
+    dictionaryImportMode: "file",
+    dictionaryImportUrl: "",
+    dictionaryImportContent: "",
+    dictionaryImportFilename: "",
+    dictionaryImportTargetId: null,
+    dictionaryImportPreview: null,
+    dictionaryImportToken: "",
+    dictionaryImportFiles: [],
+    dictionaryImportSourceUrl: "",
+    dictionaryImportBusy: false,
+    dictionaryImportError: "",
+    dictionaryImportErrorDetail: "",
+    dictionaryImportAcknowledged: false,
     snippets: [],
     models: [],
     modelBackend: "faster-whisper",
@@ -94,6 +129,11 @@ function app() {
     newSnippetTrigger: "",
     newSnippetExpansion: "",
 
+    setup: {
+      detection: null,
+      success: "",
+      open: false,
+    },
     loading: {
       status: false,
       stats: false,
@@ -105,6 +145,7 @@ function app() {
       models: false,
       ollama: false,
       diskUsage: false,
+      setup: false,
     },
     errors: {
       status: "",
@@ -117,8 +158,15 @@ function app() {
       models: "",
       ollama: "",
       diskUsage: "",
+      setup: "",
     },
-    busy: { config: false, word: false, snippet: false, historyClear: false },
+    busy: {
+      config: false,
+      word: false,
+      snippet: false,
+      historyClear: false,
+      setup: false,
+    },
     dictionaryPackBusy: {},
     dictionaryPackErrors: {},
     saveState: "",
@@ -131,14 +179,35 @@ function app() {
     _aiModelSelectionByBackend: {},
     _activeAiBackend: null,
     _modelOperations: {},
+    _modelOperationPromises: {},
     _confirmationAction: null,
     _confirmationTrigger: null,
     _savingConfig: false,
-    _queuedConfig: null,
+    _queuedConfig: [],
     _configSavePromise: null,
     _dialogListenerAttached: false,
-
+    _dictionaryImportRequestId: 0,
+    _popstateListener: null,
+    _visibilityChangeListener: null,
+    _statusRefreshTimer: null,
+    _statusRefreshPromise: null,
+    _setupRequestId: 0,
+    _lastConfigSaveError: null,
     async init() {
+      this.currentPage = this.pageForPath(window.location.pathname);
+      this._popstateListener = () => {
+        this.navigate(this.pageForPath(window.location.pathname), {
+          updateHistory: false,
+        });
+      };
+      window.addEventListener("popstate", this._popstateListener);
+      if (typeof document.addEventListener === "function") {
+        this._visibilityChangeListener = () => this.handleStatusVisibilityChange();
+        document.addEventListener(
+          "visibilitychange",
+          this._visibilityChangeListener,
+        );
+      }
       this.attachConfirmationDialogListener();
       await Promise.all([
         this.loadStatus(),
@@ -151,6 +220,10 @@ function app() {
         this.loadModels(),
         this.loadDiskUsage(),
       ]);
+      if (this.config.first_run === true) {
+        await this.detectOptimalSetup({ open: false });
+      }
+      this.startStatusRefresh();
     },
 
     attachConfirmationDialogListener() {
@@ -166,8 +239,94 @@ function app() {
       });
     },
 
-    navigate(id) {
-      this.currentPage = id;
+    destroy() {
+      if (this._popstateListener) {
+        window.removeEventListener("popstate", this._popstateListener);
+        this._popstateListener = null;
+      }
+      if (
+        this._visibilityChangeListener &&
+        typeof document.removeEventListener === "function"
+      ) {
+        document.removeEventListener(
+          "visibilitychange",
+          this._visibilityChangeListener,
+        );
+      }
+      this._visibilityChangeListener = null;
+      this.stopStatusRefresh();
+    },
+
+
+    isDocumentVisible() {
+      return (
+        typeof document === "undefined" || document.visibilityState !== "hidden"
+      );
+    },
+
+    startStatusRefresh() {
+      if (
+        this._statusRefreshTimer !== null ||
+        !this.isDocumentVisible() ||
+        typeof window === "undefined" ||
+        typeof window.setInterval !== "function"
+      ) {
+        return;
+      }
+      this._statusRefreshTimer = window.setInterval(() => {
+        if (this.isDocumentVisible()) this.loadStatus();
+      }, STATUS_REFRESH_INTERVAL_MS);
+    },
+
+    stopStatusRefresh() {
+      const timer = this._statusRefreshTimer;
+      this._statusRefreshTimer = null;
+      if (timer !== null && typeof window.clearInterval === "function") {
+        window.clearInterval(timer);
+      }
+    },
+
+    handleStatusVisibilityChange() {
+      if (this.isDocumentVisible()) {
+        this.loadStatus();
+        this.startStatusRefresh();
+      } else {
+        this.stopStatusRefresh();
+      }
+    },
+
+    pageForPath(pathname) {
+      const normalizedPath = pathname.replace(/\/+$/, "") || "/";
+      return (
+        this.navItems.find((item) => item.path === normalizedPath)?.id ||
+        "dashboard"
+      );
+    },
+
+    handleNavigation(event, id) {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      event.preventDefault();
+      this.navigate(id);
+    },
+
+    navigate(id, { updateHistory = true } = {}) {
+      const page = this.navItems.find((item) => item.id === id);
+      if (!page) return;
+
+      const pageChanged = this.currentPage !== page.id;
+      this.currentPage = page.id;
+      if (updateHistory && pageChanged) {
+        window.history.pushState(null, "", page.path);
+      }
       this.mobileNavOpen = false;
       this.$nextTick(() => {
         const heading = document.getElementById("page-heading");
@@ -201,6 +360,34 @@ function app() {
       } catch (_) {
         // A private browsing context can deny persistent storage.
       }
+    },
+
+    promptTemplateFor(customPrompt = this.config.ai?.custom_prompt) {
+      const prompt = String(customPrompt ?? "");
+      if (!prompt.trim()) return "default";
+      return (
+        Object.entries(PROMPT_TEMPLATE_INSTRUCTIONS).find(
+          ([templateId, instructions]) =>
+            templateId !== "default" && prompt === instructions,
+        )?.[0] || "custom"
+      );
+    },
+
+    syncPromptTemplate(customPrompt) {
+      this.promptTemplate = this.promptTemplateFor(customPrompt);
+    },
+
+    applyPromptTemplate(templateId) {
+
+      const instructions = PROMPT_TEMPLATE_INSTRUCTIONS[templateId];
+      if (instructions === undefined) {
+        this.syncPromptTemplate();
+        return;
+      }
+
+      this.config.ai.custom_prompt = instructions;
+      this.promptTemplate = templateId;
+      this.saveConfig();
     },
 
     showToast(key, type = "success", params = {}) {
@@ -264,6 +451,10 @@ function app() {
       return i18n.formatNumber(this.uiLanguage, value, options);
     },
 
+    formatMegabytes(value) {
+      return i18n.formatMegabytes(this.uiLanguage, value);
+    },
+
     formatDuration(value) {
       return i18n.formatDuration(this.uiLanguage, value);
     },
@@ -305,8 +496,13 @@ function app() {
         throw new Error("invalid-response");
       }
 
-      if (!response.ok) throw new Error("request-failed");
-      if (data && data.status === "error") throw new Error("request-failed");
+      if (!response.ok || (data && data.status === "error")) {
+        const error = new Error("request-failed");
+        if (typeof data?.detail === "string") {
+          error.detail = data.detail.slice(0, IMPORT_ERROR_DETAIL_MAX_LENGTH);
+        }
+        throw error;
+      }
       return data;
     },
 
@@ -329,16 +525,31 @@ function app() {
         this.loading[key] = false;
       }
     },
-
-    async loadStatus() {
-      return this.loadResource(
+    loadStatus() {
+      if (this._statusRefreshPromise) return this._statusRefreshPromise;
+      const request = this.loadResource(
         "status",
         () => this.api("/api/status"),
         (data) => {
           this.status = data;
+          this.startStatusRefresh();
         },
         "Could not check the dashboard connection.",
       );
+      this._statusRefreshPromise = request;
+      request.then(
+        () => {
+          if (this._statusRefreshPromise === request) {
+            this._statusRefreshPromise = null;
+          }
+        },
+        () => {
+          if (this._statusRefreshPromise === request) {
+            this._statusRefreshPromise = null;
+          }
+        },
+      );
+      return request;
     },
 
     async loadStats() {
@@ -358,6 +569,7 @@ function app() {
         () => this.api("/api/config"),
         (data) => {
           this.config = data;
+          this.syncPromptTemplate();
           const normalized = this.normalizeSttBackendConfig();
           this.rememberCurrentAiModel();
           this.selectModelBackend(this.modelBackendForConfig());
@@ -366,6 +578,161 @@ function app() {
         },
         "Could not load settings.",
       );
+    },
+
+    setupMemory(value) {
+      if (value === null || value === undefined) return this.t("Unknown");
+      const amount = Number(value);
+      return Number.isFinite(amount) && amount >= 0
+        ? `${this.formatNumber((amount * 1048576) / 1000000000, {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+          })} GB`
+        : this.t("Unknown");
+    },
+
+    setupGpuList() {
+      const gpus = this.setup.detection?.hardware?.gpus;
+      return Array.isArray(gpus) ? gpus : [];
+    },
+
+    setupWarningLabel(code) {
+      return this.t(`Setup warning: ${code}`);
+    },
+
+    setupReasonLabel(reason) {
+      return this.t(`Setup reason: ${reason}`);
+    },
+
+    setupNeedsAmdExtra() {
+      const warnings = this.setup.detection?.warnings;
+      return (
+        Array.isArray(warnings) &&
+        warnings.some((warning) =>
+          ["amd_runtime_missing", "vulkan_unavailable"].includes(warning),
+        )
+      );
+    },
+
+    setupIsDownloaded() {
+      return Boolean(this.setup.detection?.recommendation?.downloaded);
+    },
+
+    async detectOptimalSetup({ open = true } = {}) {
+      if (this.busy.setup) return null;
+      if (open) this.setup.open = true;
+      const requestId = ++this._setupRequestId;
+      this.loading.setup = true;
+      this.errors.setup = "";
+      this.setup.success = "";
+      try {
+        const data = this.assertSuccessful(await this.api("/api/setup/detect"));
+        if (requestId !== this._setupRequestId) return null;
+        this.setup.detection = data;
+        return data;
+      } catch (_) {
+        if (requestId === this._setupRequestId) {
+          this.errors.setup = "Could not detect an optimal setup.";
+        }
+        return null;
+      } finally {
+        if (requestId === this._setupRequestId) this.loading.setup = false;
+      }
+    },
+
+    setupRecommendationConfig(recommendation) {
+      return {
+        backend: recommendation.backend,
+        model: recommendation.model,
+        device: recommendation.device,
+        compute_type: recommendation.compute_type,
+      };
+    },
+
+    restoreOptimalSetupConfig(config, previousSetup) {
+      const stt = { ...(config.stt || {}) };
+      for (const [field, value] of Object.entries(previousSetup.stt)) {
+        if (value === undefined) {
+          delete stt[field];
+        } else {
+          stt[field] = value;
+        }
+      }
+      return { ...config, first_run: previousSetup.first_run, stt };
+    },
+
+    rollbackOptimalSetupConfig(previousSetup) {
+      this.config = this.restoreOptimalSetupConfig(this.config, previousSetup);
+      for (const entry of this._queuedConfig) {
+        entry.snapshot = this.restoreOptimalSetupConfig(
+          entry.snapshot,
+          previousSetup,
+        );
+      }
+    },
+
+    async dismissOptimalSetup() {
+      if (this.busy.setup || this.config.first_run !== true) return;
+      const previousConfig = this.config;
+      this.busy.setup = true;
+      this.errors.setup = "";
+      try {
+        this.config = { ...this.config, first_run: false };
+        await this.saveConfig({ throwOnError: true });
+        this.setup.success = "";
+        this.showToast("Saved");
+      } catch (_) {
+        this.config = previousConfig;
+        this.errors.setup = "Could not save setup preference.";
+      } finally {
+        this.busy.setup = false;
+      }
+    },
+
+    async applyOptimalSetup() {
+      const detection = this.setup.detection;
+      const recommendation = detection?.recommendation;
+      if (!recommendation || this.busy.setup || this.loading.setup) return;
+
+      const requestId = this._setupRequestId;
+      this.busy.setup = true;
+      this.errors.setup = "";
+      this.setup.success = "";
+      try {
+        await this.downloadModel(recommendation.model, recommendation.backend, {
+          throwOnError: true,
+        });
+        if (requestId !== this._setupRequestId) return;
+
+        const previousSetup = {
+          first_run: this.config.first_run,
+          stt: Object.fromEntries(
+            Object.keys(this.setupRecommendationConfig(recommendation)).map(
+              (field) => [field, this.config.stt?.[field]],
+            ),
+          ),
+        };
+        this.config = {
+          ...this.config,
+          first_run: false,
+          stt: {
+            ...(this.config.stt || {}),
+            ...this.setupRecommendationConfig(recommendation),
+          },
+        };
+        await this.saveConfig({
+          throwOnError: true,
+          onFailure: () => this.rollbackOptimalSetupConfig(previousSetup),
+        });
+        this.selectModelBackend(recommendation.backend);
+        this.setup.success =
+          "Setup saved. Restart LinuxWhispr to activate the recommendation.";
+        this.showToast(this.setup.success);
+      } catch (_) {
+        this.errors.setup = "Could not apply the recommended setup.";
+      } finally {
+        this.busy.setup = false;
+      }
     },
 
     async loadHistory() {
@@ -423,6 +790,28 @@ function app() {
 
     dictionaryPacks() {
       return Array.isArray(this.dictionary?.packs) ? this.dictionary.packs : [];
+    },
+
+    bundledDictionaryPacks() {
+      return this.dictionaryPacks().filter((pack) => pack?.kind !== "community");
+    },
+
+    communityDictionaryPacks() {
+      return this.dictionaryPacks().filter((pack) => pack?.kind === "community");
+    },
+
+    dictionaryPackTerms(pack) {
+      return Array.isArray(pack?.terms) ? pack.terms : [];
+    },
+
+    dictionaryPackSources(pack) {
+      return Array.isArray(pack?.sources) ? pack.sources : [];
+    },
+
+    dictionaryPackSourceUrl(pack) {
+      return pack?.source?.kind === "url"
+        ? this.safeExternalUrl(pack.source.url)
+        : "";
     },
 
     dictionaryPackName(pack) {
@@ -510,6 +899,294 @@ function app() {
         this.dictionaryPackErrors = {
           ...this.dictionaryPackErrors,
           [packId]: "Could not update dictionary pack.",
+        };
+      } finally {
+        const { [packId]: _, ...remaining } = this.dictionaryPackBusy;
+        this.dictionaryPackBusy = remaining;
+      }
+    },
+
+    invalidateDictionaryImportPreview() {
+      this._dictionaryImportRequestId += 1;
+      this.dictionaryImportPreview = null;
+      this.dictionaryImportToken = "";
+      this.dictionaryImportFiles = [];
+      this.dictionaryImportSourceUrl = "";
+      this.dictionaryImportError = "";
+      this.dictionaryImportErrorDetail = "";
+      this.dictionaryImportAcknowledged = false;
+    },
+
+    onDictionaryImportModeChange() {
+      this.invalidateDictionaryImportPreview();
+    },
+
+    async handleDictionaryImportFile(event) {
+      this.invalidateDictionaryImportPreview();
+      const file = event?.target?.files?.[0];
+      this.dictionaryImportContent = "";
+      this.dictionaryImportFilename = "";
+      if (!file) return;
+
+      const requestId = this._dictionaryImportRequestId;
+      this.dictionaryImportFilename = String(file.name || "");
+      try {
+        const content = await file.text();
+        if (requestId !== this._dictionaryImportRequestId) return;
+        this.dictionaryImportContent = content;
+      } catch (_) {
+        if (requestId === this._dictionaryImportRequestId) {
+          this.dictionaryImportError = "Could not read dictionary file.";
+        }
+      }
+    },
+
+    dictionaryImportPreviewData() {
+      return this.dictionaryImportPreview && typeof this.dictionaryImportPreview === "object"
+        ? this.dictionaryImportPreview
+        : null;
+    },
+
+    dictionaryImportDocument() {
+      return this.dictionaryImportPreviewData()?.document || {};
+    },
+
+    dictionaryImportEntries() {
+      const entries = this.dictionaryImportDocument().entries;
+      return Array.isArray(entries) ? entries : [];
+    },
+
+    dictionaryEntryDescription(entry) {
+      const word = String(entry?.word || "");
+      const aliases = Array.isArray(entry?.aliases) ? entry.aliases : [];
+      return aliases.length ? `${word} (${aliases.join(", ")})` : word;
+    },
+
+    dictionaryImportChanges() {
+      const changes = this.dictionaryImportPreviewData()?.changes;
+      return changes && typeof changes === "object" ? changes : {};
+    },
+
+    dictionaryImportConflicts() {
+      const conflicts = this.dictionaryImportPreviewData()?.conflicts;
+      return Array.isArray(conflicts) ? conflicts : [];
+    },
+
+    dictionaryImportHasConflicts() {
+      return this.dictionaryImportConflicts().length > 0;
+    },
+
+    dictionaryImportPreviewSourceUrl() {
+      return this.safeExternalUrl(this.dictionaryImportPreviewData()?.source?.url);
+    },
+
+    dictionaryImportTargetName() {
+      const pack = this.dictionaryPacks().find(
+        (item) => item?.id === this.dictionaryImportTargetId,
+      );
+      return this.dictionaryImportPackName(pack) || this.dictionaryImportTargetId || "";
+    },
+
+    dictionaryImportPackName(pack) {
+      return String(pack?.name || pack?.document_id || pack?.id || "");
+    },
+
+    async requestDictionaryImportPreview(request) {
+      if (this.dictionaryImportBusy) return;
+      const requestId = ++this._dictionaryImportRequestId;
+      this.dictionaryImportBusy = true;
+      this.dictionaryImportError = "";
+      this.dictionaryImportErrorDetail = "";
+      this.dictionaryImportPreview = null;
+      this.dictionaryImportToken = "";
+      this.dictionaryImportFiles = [];
+      this.dictionaryImportSourceUrl = "";
+      this.dictionaryImportAcknowledged = false;
+      try {
+        const data = this.assertSuccessful(await request());
+        if (requestId !== this._dictionaryImportRequestId) return;
+        if (data.kind === "selection" && Array.isArray(data.files)) {
+          this.dictionaryImportFiles = data.files;
+          this.dictionaryImportSourceUrl = String(data.source_url || "");
+          return;
+        }
+        if (
+          data.kind === "preview" &&
+          typeof data.token === "string" &&
+          data.token &&
+          data.preview &&
+          typeof data.preview === "object"
+        ) {
+          this.dictionaryImportPreview = data.preview;
+          this.dictionaryImportToken = data.token;
+          return;
+        }
+        throw new Error("invalid-preview");
+      } catch (error) {
+        if (requestId === this._dictionaryImportRequestId) {
+          this.dictionaryImportError = "Could not preview dictionary.";
+          this.dictionaryImportErrorDetail =
+            typeof error?.detail === "string"
+              ? error.detail.slice(0, IMPORT_ERROR_DETAIL_MAX_LENGTH)
+              : "";
+        }
+      } finally {
+        if (requestId === this._dictionaryImportRequestId) {
+          this.dictionaryImportBusy = false;
+        }
+      }
+    },
+
+    previewDictionaryImport() {
+      this.invalidateDictionaryImportPreview();
+      const packId = this.dictionaryImportTargetId || undefined;
+      if (this.dictionaryImportMode === "file") {
+        if (!this.dictionaryImportContent || !this.dictionaryImportFilename) {
+          this.dictionaryImportError = "Choose a dictionary file.";
+          return;
+        }
+        return this.requestDictionaryImportPreview(() =>
+          this.api("/api/dictionary/import/preview", {
+            method: "POST",
+            body: JSON.stringify({
+              content: this.dictionaryImportContent,
+              filename: this.dictionaryImportFilename,
+              ...(packId ? { pack_id: packId } : {}),
+            }),
+          }),
+        );
+      }
+
+      const url = this.dictionaryImportUrl.trim();
+      if (!url) {
+        this.dictionaryImportError = "Enter a dictionary URL.";
+        return;
+      }
+      return this.requestDictionaryImportPreview(() =>
+        this.api("/api/dictionary/import/preview", {
+          method: "POST",
+          body: JSON.stringify({
+            url,
+            ...(packId ? { pack_id: packId } : {}),
+          }),
+        }),
+      );
+    },
+
+    selectDictionaryImportFile(file) {
+      if (!file?.name || !this.dictionaryImportSourceUrl) return;
+      return this.requestDictionaryImportPreview(() =>
+        this.api("/api/dictionary/import/preview", {
+          method: "POST",
+          body: JSON.stringify({
+            url: this.dictionaryImportSourceUrl,
+            filename: String(file.name),
+            ...(this.dictionaryImportTargetId
+              ? { pack_id: this.dictionaryImportTargetId }
+              : {}),
+          }),
+        }),
+      );
+    },
+
+    prepareDictionaryFileReplacement(pack) {
+      const packId = String(pack?.id || "");
+      if (!packId) return;
+      this.invalidateDictionaryImportPreview();
+      this.dictionaryImportMode = "file";
+      this.dictionaryImportTargetId = packId;
+      this.dictionaryImportContent = "";
+      this.dictionaryImportFilename = "";
+      const input = document.getElementById("dictionary-import-file");
+      if (input instanceof HTMLInputElement) input.value = "";
+      this.$nextTick(() => input?.focus?.());
+    },
+
+    checkDictionaryPackUpdate(pack) {
+      const packId = String(pack?.id || "");
+      if (!packId || this.dictionaryImportBusy) return;
+      this.invalidateDictionaryImportPreview();
+      this.dictionaryImportTargetId = packId;
+      return this.requestDictionaryImportPreview(() =>
+        this.api(
+          `/api/dictionary/packs/${encodeURIComponent(packId)}/check-update`,
+          { method: "POST" },
+        ),
+      );
+    },
+
+    cancelDictionaryImport() {
+      this.invalidateDictionaryImportPreview();
+      this.dictionaryImportContent = "";
+      this.dictionaryImportFilename = "";
+      this.dictionaryImportTargetId = null;
+      this.dictionaryImportBusy = false;
+      const input = document.getElementById("dictionary-import-file");
+      if (input instanceof HTMLInputElement) input.value = "";
+    },
+
+    async confirmDictionaryImport() {
+      const token = this.dictionaryImportToken;
+      if (
+        !token ||
+        !this.dictionaryImportPreview ||
+        this.dictionaryImportBusy ||
+        (this.dictionaryImportHasConflicts() &&
+          !this.dictionaryImportAcknowledged)
+      ) {
+        return;
+      }
+
+      const requestId = this._dictionaryImportRequestId;
+      this.dictionaryImportBusy = true;
+      this.dictionaryImportError = "";
+      this.dictionaryImportErrorDetail = "";
+      try {
+        this.assertSuccessful(
+          await this.api("/api/dictionary/import/confirm", {
+            method: "POST",
+            body: JSON.stringify({
+              token,
+              acknowledge_conflicts: this.dictionaryImportAcknowledged,
+            }),
+          }),
+        );
+        if (requestId !== this._dictionaryImportRequestId) return;
+        this.showToast("Community dictionary saved.");
+        this.cancelDictionaryImport();
+        await this.loadDictionary();
+      } catch (error) {
+        if (requestId === this._dictionaryImportRequestId) {
+          this.dictionaryImportError = "Could not save community dictionary.";
+          this.dictionaryImportErrorDetail =
+            typeof error?.detail === "string"
+              ? error.detail.slice(0, IMPORT_ERROR_DETAIL_MAX_LENGTH)
+              : "";
+        }
+      } finally {
+        if (requestId === this._dictionaryImportRequestId) {
+          this.dictionaryImportBusy = false;
+        }
+      }
+    },
+
+    async removeCommunityDictionaryPack(pack) {
+      const packId = String(pack?.id || "");
+      if (!packId || this.dictionaryPackBusy[packId]) return;
+      this.dictionaryPackBusy = { ...this.dictionaryPackBusy, [packId]: true };
+      this.dictionaryPackErrors = { ...this.dictionaryPackErrors, [packId]: "" };
+      try {
+        this.assertSuccessful(
+          await this.api(`/api/dictionary/packs/${encodeURIComponent(packId)}`, {
+            method: "DELETE",
+          }),
+        );
+        this.showToast("Community dictionary removed.");
+        await this.loadDictionary();
+      } catch (_) {
+        this.dictionaryPackErrors = {
+          ...this.dictionaryPackErrors,
+          [packId]: "Could not remove community dictionary.",
         };
       } finally {
         const { [packId]: _, ...remaining } = this.dictionaryPackBusy;
@@ -792,6 +1469,9 @@ function app() {
       }
       if (runtime.state === "recording") return "Recording";
       if (runtime.state === "processing") return "Processing";
+      if (runtime.state === "idle" && runtime.models_preparing === true) {
+        return "Preparing models";
+      }
       return "Dictation ready";
     },
 
@@ -857,10 +1537,8 @@ function app() {
     },
 
     formatSttModel(model) {
-      const size = model.sizeGb
-        ? `${this.formatNumber(model.sizeGb)} GB`
-        : `${this.formatNumber(model.sizeMb)} MB`;
-      return `${model.name} (~${size})`;
+      const sizeMb = model.sizeMb ?? model.sizeGb * 1000;
+      return `${model.name} (~${this.formatMegabytes(sizeMb)})`;
     },
 
     selectSttBackend() {
@@ -949,46 +1627,70 @@ function app() {
       );
     },
 
-    async saveConfig() {
-      this._queuedConfig = JSON.parse(JSON.stringify(this.config));
-      if (this._savingConfig) return this._configSavePromise;
+    saveConfig({ throwOnError = false, onFailure = null } = {}) {
+      const snapshot = JSON.parse(JSON.stringify(this.config));
+      let resolve;
+      const result = new Promise((done) => {
+        resolve = done;
+      });
+      const queued = this._queuedConfig;
+      const lastEntry = queued.at(-1);
+      if (!throwOnError && lastEntry && !lastEntry.throwOnError) {
+        lastEntry.snapshot = snapshot;
+        lastEntry.resolvers.push(resolve);
+      } else {
+        queued.push({
+          snapshot,
+          throwOnError,
+          onFailure,
+          resolvers: [resolve],
+        });
+      }
 
-      this._savingConfig = true;
-      this._configSavePromise = (async () => {
-        while (this._queuedConfig) {
-          const snapshot = this._queuedConfig;
-          this._queuedConfig = null;
-          this.busy.config = true;
-          this.saveState = "saving";
-          try {
-            this.assertSuccessful(
-              await this.api("/api/config", {
-                method: "PUT",
-                body: JSON.stringify(snapshot),
-              }),
-            );
-            if (!this._queuedConfig) {
-              this.saveState = "saved";
-              if (this.currentPage === "models") {
-                await this.loadModels(this.modelBackend);
+      if (!this._savingConfig) {
+        this._savingConfig = true;
+        this._configSavePromise = (async () => {
+          while (this._queuedConfig.length) {
+            const entry = this._queuedConfig.shift();
+            this.busy.config = true;
+            this.saveState = "saving";
+            let error = null;
+            try {
+              this.assertSuccessful(
+                await this.api("/api/config", {
+                  method: "PUT",
+                  body: JSON.stringify(entry.snapshot),
+                }),
+              );
+              this._lastConfigSaveError = null;
+              if (!this._queuedConfig.length) {
+                this.saveState = "saved";
+                if (this.currentPage === "models") {
+                  await this.loadModels(this.modelBackend);
+                }
+              }
+            } catch (caught) {
+              error = caught;
+              this._lastConfigSaveError = caught;
+              entry.onFailure?.();
+              if (!this._queuedConfig.length) {
+                this.saveState = "error";
+                this.showToast("Could not save settings.", "error");
               }
             }
-          } catch (_) {
-            if (!this._queuedConfig) {
-              this.saveState = "error";
-              this.showToast("Could not save settings.", "error");
-            }
+            for (const done of entry.resolvers) done({ error });
           }
-        }
-      })();
-
-      try {
-        await this._configSavePromise;
-      } finally {
-        this.busy.config = false;
-        this._savingConfig = false;
-        this._configSavePromise = null;
+        })().finally(() => {
+          this.busy.config = false;
+          this._savingConfig = false;
+          this._configSavePromise = null;
+        });
       }
+
+      return result.then(({ error }) => {
+        if (error && throwOnError) throw error;
+        return !error;
+      });
     },
 
     async resetConfig() {
@@ -1157,25 +1859,44 @@ function app() {
       }
     },
 
-    async downloadModel(name, backend = this.modelBackend) {
+    async downloadModel(
+      name,
+      backend = this.modelBackend,
+      { throwOnError = false } = {},
+    ) {
       const key = this.modelOperationKey(backend, name);
-      if (this._modelOperations[key]) return;
-      this._modelOperations[key] = "downloading";
+      let operation = this._modelOperationPromises[key];
+      if (!operation) {
+        this._modelOperations[key] = "downloading";
+        operation = (async () => {
+          try {
+            this.assertSuccessful(
+              await this.api(
+                `/api/models/${encodeURIComponent(name)}/download?backend=${encodeURIComponent(backend)}`,
+                { method: "POST" },
+              ),
+            );
+            this.showToast("Model downloaded.");
+            await Promise.all([this.loadModels(backend), this.loadDiskUsage()]);
+            return true;
+          } catch (error) {
+            this.showToast("Could not download model.", "error");
+            throw error;
+          } finally {
+            if (this._modelOperations[key] === "downloading") {
+              delete this._modelOperations[key];
+            }
+            delete this._modelOperationPromises[key];
+          }
+        })();
+        this._modelOperationPromises[key] = operation;
+      }
+
       try {
-        this.assertSuccessful(
-          await this.api(
-            `/api/models/${encodeURIComponent(name)}/download?backend=${encodeURIComponent(backend)}`,
-            { method: "POST" },
-          ),
-        );
-        this.showToast("Model downloaded.");
-        await Promise.all([this.loadModels(backend), this.loadDiskUsage()]);
-      } catch (_) {
-        this.showToast("Could not download model.", "error");
-      } finally {
-        if (this._modelOperations[key] === "downloading") {
-          delete this._modelOperations[key];
-        }
+        return await operation;
+      } catch (error) {
+        if (throwOnError) throw error;
+        return false;
       }
     },
 

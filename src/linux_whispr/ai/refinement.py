@@ -5,7 +5,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from linux_whispr.ai.prompts.refinement import build_refinement_prompt
+from linux_whispr.ai.base import LLMUnavailableError
+from linux_whispr.ai.prompts.refinement import (
+    build_refinement_prompt,
+    build_refinement_system_prompt,
+)
 
 if TYPE_CHECKING:
     from linux_whispr.ai.base import LLMBackend, RefinementResult
@@ -25,10 +29,12 @@ class RefinementPipeline:
         event_bus: EventBus,
         backend: LLMBackend | None = None,
         enabled: bool = False,
+        custom_prompt: str = "",
     ) -> None:
         self._event_bus = event_bus
         self._backend = backend
         self._enabled = enabled
+        self._custom_prompt = custom_prompt
 
     @property
     def enabled(self) -> bool:
@@ -43,6 +49,7 @@ class RefinementPipeline:
         raw_text: str,
         app_name: str | None = None,
         dictionary_context: str = "",
+        language: str | None = None,
     ) -> str:
         """Refine raw transcription text using AI.
 
@@ -53,35 +60,20 @@ class RefinementPipeline:
 
         assert self._backend is not None
 
-        try:
-            available = self._backend.is_available()
-        except Exception:
-            logger.exception("Could not check AI refinement availability")
-            self._event_bus.emit(
-                "ai.error",
-                message="AI refinement is unavailable. Check the configured AI service.",
-            )
-            return raw_text
-
-        if not available:
-            logger.warning("LLM backend not available, returning raw text")
-            self._event_bus.emit(
-                "ai.error",
-                message="AI refinement is unavailable. Check the configured AI service.",
-            )
-            return raw_text
-
         self._event_bus.emit("ai.started")
 
         prompt = build_refinement_prompt(
             raw_text=raw_text,
             app_name=app_name,
             dictionary_context=dictionary_context,
+            custom_prompt=self._custom_prompt,
         )
+
+        system_prompt = build_refinement_system_prompt(language)
 
         try:
             result: RefinementResult = self._backend.generate(
-                system_prompt="",  # System prompt is embedded in the user prompt for simplicity
+                system_prompt=system_prompt,
                 user_prompt=prompt,
             )
             refined = result.text.strip()
@@ -94,6 +86,14 @@ class RefinementPipeline:
             )
             self._event_bus.emit("ai.complete", text=refined)
             return refined
+
+        except LLMUnavailableError:
+            logger.warning("LLM backend unavailable, returning raw text")
+            self._event_bus.emit(
+                "ai.error",
+                message="AI refinement is unavailable. Check the configured AI service.",
+            )
+            return raw_text
 
         except Exception:
             logger.exception("AI refinement failed, returning raw text")

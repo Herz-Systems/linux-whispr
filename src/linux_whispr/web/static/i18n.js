@@ -78,6 +78,13 @@
       "Could not save settings.": "Could not save settings.",
       "Changes are saved automatically and persist for the next startup. Restart the app when needed.":
         "Changes are saved automatically and persist for the next startup. Restart the app when needed.",
+      "Startup behavior": "Startup behavior",
+      "Launch LinuxWhispr on startup": "Launch LinuxWhispr on startup",
+      "Open dashboard on launch": "Open dashboard on launch",
+      "Preload local models on launch": "Preload local models on launch",
+      "Applies on next launch and uses only models already cached on this computer.":
+        "Applies on next launch and uses only models already cached on this computer.",
+      "Dashboard stays available.": "Dashboard stays available.",
       "Transcription (STT)": "Transcription (STT)",
       "STT backend": "STT backend",
       Local: "Local",
@@ -91,6 +98,8 @@
       "faster-whisper (CPU / CUDA)": "faster-whisper (CPU / CUDA)",
       Audio: "Audio",
       "Silence duration": "Silence duration",
+      "Shorter pauses finish dictation sooner.":
+        "Shorter pauses finish dictation sooner.",
       "VAD sensitivity": "VAD sensitivity",
       "Whisper mode": "Whisper mode",
       "Boost gain for quiet environments": "Boost gain for quiet environments",
@@ -102,6 +111,13 @@
       None: "None",
       "Local (llama.cpp)": "Local (llama.cpp)",
       "Local (Ollama)": "Local (Ollama)",
+      "Keep selected Ollama model ready": "Keep selected Ollama model ready",
+      "Keeps the selected local Ollama model loaded after use.":
+        "Keeps the selected local Ollama model loaded after use.",
+      "{count} minutes": {
+        one: "{count} minute",
+        other: "{count} minutes",
+      },
       "Installed local model": "Installed local model",
       "Refresh installed Ollama models": "Refresh installed Ollama models",
       "Refreshing…": "Refreshing…",
@@ -141,8 +157,17 @@
       Recording: "Recording",
       Processing: "Processing",
       "Dictation ready": "Dictation ready",
+      "Preparing models": "Preparing models",
       "e.g. gpt-4o-mini": "e.g. gpt-4o-mini",
       "Custom prompt": "Custom prompt",
+      "Prompt template": "Prompt template",
+      Default: "Default",
+      Formal: "Formal",
+      Casual: "Casual",
+      Concise: "Concise",
+      "Bullet points": "Bullet points",
+      "Choose a template, then edit the prompt below.":
+        "Choose a template, then edit the prompt below.",
       "Leave empty to use the default": "Leave empty to use the default",
       "Keyboard shortcuts": "Keyboard shortcuts",
       "Dictation hotkey": "Dictation hotkey",
@@ -174,14 +199,7 @@
       "Clear all": "Clear all",
       "Search transcriptions": "Search transcriptions",
       Refresh: "Refresh",
-      "History table": "History table",
-      Date: "Date",
-      Text: "Text",
-      Words: "Words",
-      Duration: "Duration",
-      App: "App",
-      Actions: "Actions",
-      "Original: {text}": "Original: {text}",
+      "Original text": "Original text",
       "Not provided": "Not provided",
       "Copy transcription": "Copy transcription",
       "Delete transcription?": "Delete transcription?",
@@ -266,6 +284,68 @@
       "No learned corrections": "No learned corrections",
       "Automatic corrections will appear here.":
         "Automatic corrections will appear here.",
+      "Import community dictionary": "Import community dictionary",
+      "Review a file or HTTPS link before adding it to your dictionaries.":
+        "Review a file or HTTPS link before adding it to your dictionaries.",
+      "Replacing {pack}": "Replacing {pack}",
+      "Import source": "Import source",
+      File: "File",
+      "HTTPS link": "HTTPS link",
+      "Dictionary file": "Dictionary file",
+      "Dictionary URL": "Dictionary URL",
+      "https://example.com/dictionary.json": "https://example.com/dictionary.json",
+      "Only public HTTPS links are fetched. GitHub files and Gists are supported.":
+        "Only public HTTPS links are fetched. GitHub files and Gists are supported.",
+      "Choose a dictionary file.": "Choose a dictionary file.",
+      "Enter a dictionary URL.": "Enter a dictionary URL.",
+      "Could not read dictionary file.": "Could not read dictionary file.",
+      "Could not preview dictionary.": "Could not preview dictionary.",
+      "Previewing…": "Previewing…",
+      "Preview import": "Preview import",
+      "Choose a Gist file": "Choose a Gist file",
+      Choose: "Choose",
+      "Review dictionary import": "Review dictionary import",
+      "Nothing is added until you confirm.": "Nothing is added until you confirm.",
+      Name: "Name",
+      Identifier: "Identifier",
+      License: "License",
+      Unspecified: "Unspecified",
+      Author: "Author",
+      Terms: "Terms",
+      Aliases: "Aliases",
+      Duplicates: "Duplicates",
+      "Terms and recognized variants": "Terms and recognized variants",
+      "Update details": "Update details",
+      "No dictionary changes found.": "No dictionary changes found.",
+      Added: "Added",
+      Removed: "Removed",
+      Changed: "Changed",
+      "Conflicts need acknowledgement": "Conflicts need acknowledgement",
+      "Personal entries keep priority over imported aliases.":
+        "Personal entries keep priority over imported aliases.",
+      "I understand these conflicts and want to continue.":
+        "I understand these conflicts and want to continue.",
+      "Saving…": "Saving…",
+      "Confirm import": "Confirm import",
+      "Community dictionaries": "Community dictionaries",
+      "Imported dictionaries are stored locally and updated only when you ask.":
+        "Imported dictionaries are stored locally and updated only when you ask.",
+      Community: "Community",
+      "License: {license}": "License: {license}",
+      "Check for updates": "Check for updates",
+      "Replace file": "Replace file",
+      "Remove community dictionary?": "Remove community dictionary?",
+      "The imported dictionary will be removed from this computer.":
+        "The imported dictionary will be removed from this computer.",
+      Remove: "Remove",
+      "No community dictionaries imported yet.":
+        "No community dictionaries imported yet.",
+      "Community dictionary saved.": "Community dictionary saved.",
+      "Could not save community dictionary.":
+        "Could not save community dictionary.",
+      "Community dictionary removed.": "Community dictionary removed.",
+      "Could not remove community dictionary.":
+        "Could not remove community dictionary.",
       "Voice shortcuts": "Voice shortcuts",
       "Use trigger phrases to insert recurring responses and text.":
         "Use trigger phrases to insert recurring responses and text.",
@@ -290,8 +370,8 @@
         "Download and manage models available for local transcription.",
       "GGML models are stored separately. Vulkan acceleration requires the AMD runtime and a Vulkan-capable driver.":
         "GGML models are stored separately. Vulkan acceleration requires the AMD runtime and a Vulkan-capable driver.",
-      "Total usage: {size} MB": "Total usage: {size} MB",
-      "~{size} MB": "~{size} MB",
+      "Total usage: {size}": "Total usage: {size}",
+      "~{size}": "~{size}",
       Active: "Active",
       Downloaded: "Downloaded",
       "Not downloaded": "Not downloaded",
@@ -349,6 +429,50 @@
       "Could not download model.": "Could not download model.",
       "Model deleted.": "Model deleted.",
       "Could not delete model.": "Could not delete model.",
+      "Find an optimal dictation setup": "Find an optimal dictation setup",
+      "Review a local hardware recommendation before changing settings.":
+        "Review a local hardware recommendation before changing settings.",
+      "Try detection again": "Try detection again",
+      "CPU threads": "CPU threads",
+      "Total RAM": "Total RAM",
+      "Available RAM": "Available RAM",
+      Unknown: "Unknown",
+      "No acceleration": "No acceleration",
+      VRAM: "VRAM",
+      "Available VRAM": "Available VRAM",
+      "Recommended setup": "Recommended setup",
+      "Approximate download: {size}": "Approximate download: {size}",
+      "Model is already downloaded.": "Model is already downloaded.",
+      "Model will be downloaded before settings change.":
+        "Model will be downloaded before settings change.",
+      "This is a conservative hardware estimate, not a performance benchmark.":
+        "This is a conservative hardware estimate, not a performance benchmark.",
+      "AMD/Vulkan support may require the AMD extra:":
+        "AMD/Vulkan support may require the AMD extra:",
+      "Detect optimal setup": "Detect optimal setup",
+      "Review detected hardware and apply only the recommended STT settings.":
+        "Review detected hardware and apply only the recommended STT settings.",
+      "Detecting…": "Detecting…",
+      "Apply setup": "Apply setup",
+      "Download and apply": "Download and apply",
+      Later: "Later",
+      "Applying…": "Applying…",
+      "Could not detect an optimal setup.": "Could not detect an optimal setup.",
+      "Could not save setup preference.": "Could not save setup preference.",
+      "Could not apply the recommended setup.":
+        "Could not apply the recommended setup.",
+      "Setup saved. Restart LinuxWhispr to activate the recommendation.":
+        "Setup saved. Restart LinuxWhispr to activate the recommendation.",
+      "Setup warning: gpu_memory_unknown": "GPU memory is unavailable.",
+      "Setup warning: ram_unknown": "Available RAM is unavailable.",
+      "Setup warning: amd_runtime_missing":
+        "AMD/Vulkan runtime support is unavailable.",
+      "Setup warning: vulkan_unavailable": "Vulkan acceleration is unavailable.",
+      "Setup warning: cuda_unavailable": "CUDA acceleration is unavailable.",
+      "Setup warning: low_memory": "Available memory is limited.",
+      "Setup reason: cuda": "CUDA acceleration was selected.",
+      "Setup reason: vulkan": "Vulkan acceleration was selected.",
+      "Setup reason: cpu": "CPU processing was selected.",
     },
     de: {
       "Skip to content": "Zum Inhalt springen",
@@ -416,6 +540,14 @@
         "Einstellungen konnten nicht gespeichert werden.",
       "Changes are saved automatically and persist for the next startup. Restart the app when needed.":
         "Änderungen werden automatisch gespeichert und bleiben bis zum nächsten Start erhalten. Starten Sie die App bei Bedarf neu.",
+      "Startup behavior": "Startverhalten",
+      "Launch LinuxWhispr on startup":
+        "LinuxWhispr automatisch starten",
+      "Open dashboard on launch": "Dashboard beim Start öffnen",
+      "Preload local models on launch": "Lokale Modelle beim Start vorladen",
+      "Applies on next launch and uses only models already cached on this computer.":
+        "Wird beim nächsten Start angewendet und verwendet nur bereits auf diesem Computer zwischengespeicherte Modelle.",
+      "Dashboard stays available.": "Dashboard bleibt verfügbar.",
       "Transcription (STT)": "Transkription (STT)",
       "STT backend": "STT-Backend",
       Local: "Lokal",
@@ -429,6 +561,8 @@
       "faster-whisper (CPU / CUDA)": "faster-whisper (CPU / CUDA)",
       Audio: "Audio",
       "Silence duration": "Stille-Dauer",
+      "Shorter pauses finish dictation sooner.":
+        "Kürzere Pausen beenden das Diktat früher.",
       "VAD sensitivity": "VAD-Empfindlichkeit",
       "Whisper mode": "Flüstermodus",
       "Boost gain for quiet environments":
@@ -441,6 +575,13 @@
       None: "Keine",
       "Local (llama.cpp)": "Lokal (llama.cpp)",
       "Local (Ollama)": "Lokal (Ollama)",
+      "Keep selected Ollama model ready": "Ausgewähltes Ollama-Modell bereithalten",
+      "Keeps the selected local Ollama model loaded after use.":
+        "Hält das ausgewählte lokale Ollama-Modell nach der Nutzung geladen.",
+      "{count} minutes": {
+        one: "{count} Minute",
+        other: "{count} Minuten",
+      },
       "Installed local model": "Installiertes lokales Modell",
       "Refresh installed Ollama models": "Installierte Ollama-Modelle aktualisieren",
       "Refreshing…": "Wird aktualisiert…",
@@ -480,8 +621,17 @@
       Recording: "Aufnahme",
       Processing: "Wird verarbeitet",
       "Dictation ready": "Diktieren bereit",
+      "Preparing models": "Modelle werden vorbereitet",
       "e.g. gpt-4o-mini": "z. B. gpt-4o-mini",
       "Custom prompt": "Benutzerdefinierte Eingabeaufforderung",
+      "Prompt template": "Vorlage für Eingabeaufforderung",
+      Default: "Standard",
+      Formal: "Formell",
+      Casual: "Locker",
+      Concise: "Kurz",
+      "Bullet points": "Stichpunkte",
+      "Choose a template, then edit the prompt below.":
+        "Wählen Sie eine Vorlage und bearbeiten Sie dann die Eingabeaufforderung unten.",
       "Leave empty to use the default":
         "Leer lassen, um den Standard zu verwenden",
       "Keyboard shortcuts": "Tastenkürzel",
@@ -515,14 +665,7 @@
       "Clear all": "Alles löschen",
       "Search transcriptions": "Transkriptionen suchen",
       Refresh: "Aktualisieren",
-      "History table": "Verlaufstabelle",
-      Date: "Datum",
-      Text: "Text",
-      Words: "Wörter",
-      Duration: "Dauer",
-      App: "App",
-      Actions: "Aktionen",
-      "Original: {text}": "Original: {text}",
+      "Original text": "Originaltext",
       "Not provided": "Nicht angegeben",
       "Copy transcription": "Transkription kopieren",
       "Delete transcription?": "Transkription löschen?",
@@ -609,6 +752,68 @@
       "No learned corrections": "Keine gelernten Korrekturen",
       "Automatic corrections will appear here.":
         "Automatische Korrekturen erscheinen hier.",
+      "Import community dictionary": "Community-Wörterbuch importieren",
+      "Review a file or HTTPS link before adding it to your dictionaries.":
+        "Prüfen Sie eine Datei oder einen HTTPS-Link, bevor Sie ihn zu Ihren Wörterbüchern hinzufügen.",
+      "Replacing {pack}": "{pack} wird ersetzt",
+      "Import source": "Importquelle",
+      File: "Datei",
+      "HTTPS link": "HTTPS-Link",
+      "Dictionary file": "Wörterbuchdatei",
+      "Dictionary URL": "Wörterbuch-URL",
+      "https://example.com/dictionary.json": "https://example.com/dictionary.json",
+      "Only public HTTPS links are fetched. GitHub files and Gists are supported.":
+        "Es werden nur öffentliche HTTPS-Links abgerufen. GitHub-Dateien und Gists werden unterstützt.",
+      "Choose a dictionary file.": "Wählen Sie eine Wörterbuchdatei aus.",
+      "Enter a dictionary URL.": "Geben Sie eine Wörterbuch-URL ein.",
+      "Could not read dictionary file.": "Wörterbuchdatei konnte nicht gelesen werden.",
+      "Could not preview dictionary.": "Wörterbuchvorschau konnte nicht erstellt werden.",
+      "Previewing…": "Vorschau wird erstellt…",
+      "Preview import": "Importvorschau",
+      "Choose a Gist file": "Gist-Datei auswählen",
+      Choose: "Auswählen",
+      "Review dictionary import": "Wörterbuchimport prüfen",
+      "Nothing is added until you confirm.": "Bis zur Bestätigung wird nichts hinzugefügt.",
+      Name: "Name",
+      Identifier: "Kennung",
+      License: "Lizenz",
+      Unspecified: "Nicht angegeben",
+      Author: "Autor",
+      Terms: "Begriffe",
+      Aliases: "Varianten",
+      Duplicates: "Duplikate",
+      "Terms and recognized variants": "Begriffe und erkannte Varianten",
+      "Update details": "Aktualisierungsdetails",
+      "No dictionary changes found.": "Keine Wörterbuchänderungen gefunden.",
+      Added: "Hinzugefügt",
+      Removed: "Entfernt",
+      Changed: "Geändert",
+      "Conflicts need acknowledgement": "Konflikte müssen bestätigt werden",
+      "Personal entries keep priority over imported aliases.":
+        "Persönliche Einträge haben Vorrang vor importierten Varianten.",
+      "I understand these conflicts and want to continue.":
+        "Ich verstehe diese Konflikte und möchte fortfahren.",
+      "Saving…": "Wird gespeichert…",
+      "Confirm import": "Import bestätigen",
+      "Community dictionaries": "Community-Wörterbücher",
+      "Imported dictionaries are stored locally and updated only when you ask.":
+        "Importierte Wörterbücher werden lokal gespeichert und nur auf Ihre Anfrage aktualisiert.",
+      Community: "Community",
+      "License: {license}": "Lizenz: {license}",
+      "Check for updates": "Auf Aktualisierungen prüfen",
+      "Replace file": "Datei ersetzen",
+      "Remove community dictionary?": "Community-Wörterbuch entfernen?",
+      "The imported dictionary will be removed from this computer.":
+        "Das importierte Wörterbuch wird von diesem Computer entfernt.",
+      Remove: "Entfernen",
+      "No community dictionaries imported yet.":
+        "Noch keine Community-Wörterbücher importiert.",
+      "Community dictionary saved.": "Community-Wörterbuch gespeichert.",
+      "Could not save community dictionary.":
+        "Community-Wörterbuch konnte nicht gespeichert werden.",
+      "Community dictionary removed.": "Community-Wörterbuch entfernt.",
+      "Could not remove community dictionary.":
+        "Community-Wörterbuch konnte nicht entfernt werden.",
       "Voice shortcuts": "Sprachkurzbefehle",
       "Use trigger phrases to insert recurring responses and text.":
         "Verwenden Sie Auslösephrasen, um wiederkehrende Antworten und Texte einzufügen.",
@@ -633,8 +838,8 @@
         "Laden Sie Modelle für die lokale Transkription herunter und verwalten Sie sie.",
       "GGML models are stored separately. Vulkan acceleration requires the AMD runtime and a Vulkan-capable driver.":
         "GGML-Modelle werden separat gespeichert. Vulkan-Beschleunigung erfordert die AMD-Laufzeit und einen Vulkan-fähigen Treiber.",
-      "Total usage: {size} MB": "Gesamtnutzung: {size} MB",
-      "~{size} MB": "~{size} MB",
+      "Total usage: {size}": "Gesamtnutzung: {size}",
+      "~{size}": "~{size}",
       Active: "Aktiv",
       Downloaded: "Heruntergeladen",
       "Not downloaded": "Nicht heruntergeladen",
@@ -700,6 +905,53 @@
         "Modell konnte nicht heruntergeladen werden.",
       "Model deleted.": "Modell wurde gelöscht.",
       "Could not delete model.": "Modell konnte nicht gelöscht werden.",
+      "Find an optimal dictation setup": "Optimale Diktier-Einrichtung finden",
+      "Review a local hardware recommendation before changing settings.":
+        "Prüfen Sie eine lokale Hardwareempfehlung, bevor Sie Einstellungen ändern.",
+      "Try detection again": "Erkennung erneut versuchen",
+      "CPU threads": "CPU-Threads",
+      "Total RAM": "Gesamter RAM",
+      "Available RAM": "Verfügbarer RAM",
+      Unknown: "Unbekannt",
+      "No acceleration": "Keine Beschleunigung",
+      VRAM: "VRAM",
+      "Available VRAM": "Verfügbarer VRAM",
+      "Recommended setup": "Empfohlene Einrichtung",
+      "Approximate download: {size}": "Ungefähre Downloadgröße: {size}",
+      "Model is already downloaded.": "Das Modell ist bereits heruntergeladen.",
+      "Model will be downloaded before settings change.":
+        "Das Modell wird vor der Änderung der Einstellungen heruntergeladen.",
+      "This is a conservative hardware estimate, not a performance benchmark.":
+        "Dies ist eine konservative Hardwareeinschätzung, kein Leistungsbenchmark.",
+      "AMD/Vulkan support may require the AMD extra:":
+        "AMD/Vulkan-Unterstützung benötigt möglicherweise das AMD-Extra:",
+      "Detect optimal setup": "Optimale Einrichtung erkennen",
+      "Review detected hardware and apply only the recommended STT settings.":
+        "Prüfen Sie die erkannte Hardware und übernehmen Sie nur die empfohlenen STT-Einstellungen.",
+      "Detecting…": "Erkennung läuft…",
+      "Apply setup": "Einrichtung übernehmen",
+      "Download and apply": "Herunterladen und übernehmen",
+      Later: "Später",
+      "Applying…": "Wird übernommen…",
+      "Could not detect an optimal setup.":
+        "Eine optimale Einrichtung konnte nicht erkannt werden.",
+      "Could not save setup preference.":
+        "Die Einrichtungsauswahl konnte nicht gespeichert werden.",
+      "Could not apply the recommended setup.":
+        "Die empfohlene Einrichtung konnte nicht übernommen werden.",
+      "Setup saved. Restart LinuxWhispr to activate the recommendation.":
+        "Einrichtung gespeichert. Starten Sie LinuxWhispr neu, um die Empfehlung zu aktivieren.",
+      "Setup warning: gpu_memory_unknown": "GPU-Speicher ist nicht verfügbar.",
+      "Setup warning: ram_unknown": "Verfügbarer RAM ist nicht bekannt.",
+      "Setup warning: amd_runtime_missing":
+        "AMD/Vulkan-Laufzeitunterstützung ist nicht verfügbar.",
+      "Setup warning: vulkan_unavailable":
+        "Vulkan-Beschleunigung ist nicht verfügbar.",
+      "Setup warning: cuda_unavailable": "CUDA-Beschleunigung ist nicht verfügbar.",
+      "Setup warning: low_memory": "Verfügbarer Arbeitsspeicher ist begrenzt.",
+      "Setup reason: cuda": "CUDA-Beschleunigung wurde ausgewählt.",
+      "Setup reason: vulkan": "Vulkan-Beschleunigung wurde ausgewählt.",
+      "Setup reason: cpu": "CPU-Verarbeitung wurde ausgewählt.",
     },
     es: {
       "Skip to content": "Saltar al contenido",
@@ -766,6 +1018,14 @@
       "Could not save settings.": "No se pudo guardar la configuración.",
       "Changes are saved automatically and persist for the next startup. Restart the app when needed.":
         "Los cambios se guardan automáticamente y se conservan para el próximo inicio. Reinicia la aplicación cuando sea necesario.",
+      "Startup behavior": "Comportamiento de inicio",
+      "Launch LinuxWhispr on startup":
+        "Iniciar LinuxWhispr automáticamente",
+      "Open dashboard on launch": "Abrir el panel al iniciar",
+      "Preload local models on launch": "Precargar modelos locales al iniciar",
+      "Applies on next launch and uses only models already cached on this computer.":
+        "Se aplica en el próximo inicio y solo usa modelos ya almacenados en caché en este equipo.",
+      "Dashboard stays available.": "El panel sigue disponible.",
       "Transcription (STT)": "Transcripción (STT)",
       "STT backend": "Motor STT",
       Local: "Local",
@@ -779,6 +1039,8 @@
       "faster-whisper (CPU / CUDA)": "faster-whisper (CPU / CUDA)",
       Audio: "Audio",
       "Silence duration": "Duración del silencio",
+      "Shorter pauses finish dictation sooner.":
+        "Las pausas más cortas terminan antes el dictado.",
       "VAD sensitivity": "Sensibilidad de VAD",
       "Whisper mode": "Modo susurro",
       "Boost gain for quiet environments":
@@ -791,6 +1053,13 @@
       None: "Ninguno",
       "Local (llama.cpp)": "Local (llama.cpp)",
       "Local (Ollama)": "Local (Ollama)",
+      "Keep selected Ollama model ready": "Mantener listo el modelo de Ollama seleccionado",
+      "Keeps the selected local Ollama model loaded after use.":
+        "Mantiene cargado el modelo local de Ollama seleccionado después de usarlo.",
+      "{count} minutes": {
+        one: "{count} minuto",
+        other: "{count} minutos",
+      },
       "Installed local model": "Modelo local instalado",
       "Refresh installed Ollama models": "Actualizar los modelos de Ollama instalados",
       "Refreshing…": "Actualizando…",
@@ -830,8 +1099,17 @@
       Recording: "Grabando",
       Processing: "Procesando",
       "Dictation ready": "Dictado listo",
+      "Preparing models": "Preparando modelos",
       "e.g. gpt-4o-mini": "p. ej., gpt-4o-mini",
       "Custom prompt": "Instrucción personalizada",
+      "Prompt template": "Plantilla de instrucción",
+      Default: "Predeterminada",
+      Formal: "Formal",
+      Casual: "Informal",
+      Concise: "Concisa",
+      "Bullet points": "Viñetas",
+      "Choose a template, then edit the prompt below.":
+        "Elige una plantilla y luego edita la instrucción de abajo.",
       "Leave empty to use the default":
         "Déjalo vacío para usar el valor predeterminado",
       "Keyboard shortcuts": "Atajos de teclado",
@@ -865,14 +1143,7 @@
       "Clear all": "Borrar todo",
       "Search transcriptions": "Buscar transcripciones",
       Refresh: "Actualizar",
-      "History table": "Tabla de historial",
-      Date: "Fecha",
-      Text: "Texto",
-      Words: "Palabras",
-      Duration: "Duración",
-      App: "Aplicación",
-      Actions: "Acciones",
-      "Original: {text}": "Original: {text}",
+      "Original text": "Texto original",
       "Not provided": "No indicado",
       "Copy transcription": "Copiar transcripción",
       "Delete transcription?": "¿Eliminar transcripción?",
@@ -959,6 +1230,68 @@
       "No learned corrections": "No hay correcciones aprendidas",
       "Automatic corrections will appear here.":
         "Las correcciones automáticas aparecerán aquí.",
+      "Import community dictionary": "Importar diccionario comunitario",
+      "Review a file or HTTPS link before adding it to your dictionaries.":
+        "Revisa un archivo o enlace HTTPS antes de añadirlo a tus diccionarios.",
+      "Replacing {pack}": "Reemplazando {pack}",
+      "Import source": "Fuente de importación",
+      File: "Archivo",
+      "HTTPS link": "Enlace HTTPS",
+      "Dictionary file": "Archivo de diccionario",
+      "Dictionary URL": "URL del diccionario",
+      "https://example.com/dictionary.json": "https://example.com/dictionary.json",
+      "Only public HTTPS links are fetched. GitHub files and Gists are supported.":
+        "Solo se obtienen enlaces HTTPS públicos. Se admiten archivos y Gists de GitHub.",
+      "Choose a dictionary file.": "Elige un archivo de diccionario.",
+      "Enter a dictionary URL.": "Introduce la URL de un diccionario.",
+      "Could not read dictionary file.": "No se pudo leer el archivo de diccionario.",
+      "Could not preview dictionary.": "No se pudo previsualizar el diccionario.",
+      "Previewing…": "Preparando vista previa…",
+      "Preview import": "Previsualizar importación",
+      "Choose a Gist file": "Elige un archivo de Gist",
+      Choose: "Elegir",
+      "Review dictionary import": "Revisar importación de diccionario",
+      "Nothing is added until you confirm.": "No se añade nada hasta que confirmes.",
+      Name: "Nombre",
+      Identifier: "Identificador",
+      License: "Licencia",
+      Unspecified: "No especificado",
+      Author: "Autor",
+      Terms: "Términos",
+      Aliases: "Variantes",
+      Duplicates: "Duplicados",
+      "Terms and recognized variants": "Términos y variantes reconocidas",
+      "Update details": "Detalles de la actualización",
+      "No dictionary changes found.": "No se encontraron cambios en el diccionario.",
+      Added: "Añadidos",
+      Removed: "Eliminados",
+      Changed: "Cambiados",
+      "Conflicts need acknowledgement": "Los conflictos requieren confirmación",
+      "Personal entries keep priority over imported aliases.":
+        "Las entradas personales tienen prioridad sobre las variantes importadas.",
+      "I understand these conflicts and want to continue.":
+        "Entiendo estos conflictos y quiero continuar.",
+      "Saving…": "Guardando…",
+      "Confirm import": "Confirmar importación",
+      "Community dictionaries": "Diccionarios de la comunidad",
+      "Imported dictionaries are stored locally and updated only when you ask.":
+        "Los diccionarios importados se guardan localmente y solo se actualizan cuando lo solicitas.",
+      Community: "Comunidad",
+      "License: {license}": "Licencia: {license}",
+      "Check for updates": "Buscar actualizaciones",
+      "Replace file": "Reemplazar archivo",
+      "Remove community dictionary?": "¿Eliminar diccionario comunitario?",
+      "The imported dictionary will be removed from this computer.":
+        "El diccionario importado se eliminará de este equipo.",
+      Remove: "Eliminar",
+      "No community dictionaries imported yet.":
+        "Aún no se han importado diccionarios comunitarios.",
+      "Community dictionary saved.": "Diccionario comunitario guardado.",
+      "Could not save community dictionary.":
+        "No se pudo guardar el diccionario comunitario.",
+      "Community dictionary removed.": "Diccionario comunitario eliminado.",
+      "Could not remove community dictionary.":
+        "No se pudo eliminar el diccionario comunitario.",
       "Voice shortcuts": "Atajos de voz",
       "Use trigger phrases to insert recurring responses and text.":
         "Usa frases de activación para insertar respuestas y texto recurrentes.",
@@ -982,8 +1315,8 @@
         "Descarga y administra modelos disponibles para la transcripción local.",
       "GGML models are stored separately. Vulkan acceleration requires the AMD runtime and a Vulkan-capable driver.":
         "Los modelos GGML se almacenan por separado. La aceleración Vulkan requiere el entorno de ejecución AMD y un controlador compatible con Vulkan.",
-      "Total usage: {size} MB": "Uso total: {size} MB",
-      "~{size} MB": "~{size} MB",
+      "Total usage: {size}": "Uso total: {size}",
+      "~{size}": "~{size}",
       Active: "Activo",
       Downloaded: "Descargado",
       "Not downloaded": "No descargado",
@@ -1044,6 +1377,53 @@
       "Could not download model.": "No se pudo descargar el modelo.",
       "Model deleted.": "Modelo eliminado.",
       "Could not delete model.": "No se pudo eliminar el modelo.",
+      "Find an optimal dictation setup": "Buscar una configuración de dictado óptima",
+      "Review a local hardware recommendation before changing settings.":
+        "Revisa una recomendación de hardware local antes de cambiar la configuración.",
+      "Try detection again": "Intentar la detección de nuevo",
+      "CPU threads": "Hilos de CPU",
+      "Total RAM": "RAM total",
+      "Available RAM": "RAM disponible",
+      Unknown: "Desconocido",
+      "No acceleration": "Sin aceleración",
+      VRAM: "VRAM",
+      "Available VRAM": "VRAM disponible",
+      "Recommended setup": "Configuración recomendada",
+      "Approximate download: {size}": "Descarga aproximada: {size}",
+      "Model is already downloaded.": "El modelo ya está descargado.",
+      "Model will be downloaded before settings change.":
+        "El modelo se descargará antes de cambiar la configuración.",
+      "This is a conservative hardware estimate, not a performance benchmark.":
+        "Esta es una estimación conservadora del hardware, no una prueba de rendimiento.",
+      "AMD/Vulkan support may require the AMD extra:":
+        "La compatibilidad con AMD/Vulkan puede requerir el extra de AMD:",
+      "Detect optimal setup": "Detectar configuración óptima",
+      "Review detected hardware and apply only the recommended STT settings.":
+        "Revisa el hardware detectado y aplica solo la configuración STT recomendada.",
+      "Detecting…": "Detectando…",
+      "Apply setup": "Aplicar configuración",
+      "Download and apply": "Descargar y aplicar",
+      Later: "Más tarde",
+      "Applying…": "Aplicando…",
+      "Could not detect an optimal setup.":
+        "No se pudo detectar una configuración óptima.",
+      "Could not save setup preference.":
+        "No se pudo guardar la preferencia de configuración.",
+      "Could not apply the recommended setup.":
+        "No se pudo aplicar la configuración recomendada.",
+      "Setup saved. Restart LinuxWhispr to activate the recommendation.":
+        "Configuración guardada. Reinicia LinuxWhispr para activar la recomendación.",
+      "Setup warning: gpu_memory_unknown": "La memoria de la GPU no está disponible.",
+      "Setup warning: ram_unknown": "La RAM disponible no está disponible.",
+      "Setup warning: amd_runtime_missing":
+        "La compatibilidad de tiempo de ejecución AMD/Vulkan no está disponible.",
+      "Setup warning: vulkan_unavailable":
+        "La aceleración Vulkan no está disponible.",
+      "Setup warning: cuda_unavailable": "La aceleración CUDA no está disponible.",
+      "Setup warning: low_memory": "La memoria disponible es limitada.",
+      "Setup reason: cuda": "Se seleccionó la aceleración CUDA.",
+      "Setup reason: vulkan": "Se seleccionó la aceleración Vulkan.",
+      "Setup reason: cpu": "Se seleccionó el procesamiento de CPU.",
     },
     pt: {
       "Skip to content": "Pular para o conteúdo",
@@ -1110,6 +1490,14 @@
       "Could not save settings.": "Não foi possível salvar as configurações.",
       "Changes are saved automatically and persist for the next startup. Restart the app when needed.":
         "As alterações são salvas automaticamente e persistem para a próxima inicialização. Reinicie o aplicativo quando necessário.",
+      "Startup behavior": "Comportamento de inicialização",
+      "Launch LinuxWhispr on startup":
+        "Iniciar LinuxWhispr automaticamente",
+      "Open dashboard on launch": "Abrir o painel ao iniciar",
+      "Preload local models on launch": "Pré-carregar modelos locais ao iniciar",
+      "Applies on next launch and uses only models already cached on this computer.":
+        "Aplica-se na próxima inicialização e usa somente modelos já armazenados em cache neste computador.",
+      "Dashboard stays available.": "O painel continua disponível.",
       "Transcription (STT)": "Transcrição (STT)",
       "STT backend": "Backend STT",
       Local: "Local",
@@ -1123,6 +1511,8 @@
       "faster-whisper (CPU / CUDA)": "faster-whisper (CPU / CUDA)",
       Audio: "Áudio",
       "Silence duration": "Duração do silêncio",
+      "Shorter pauses finish dictation sooner.":
+        "Pausas menores encerram o ditado mais cedo.",
       "VAD sensitivity": "Sensibilidade VAD",
       "Whisper mode": "Modo sussurro",
       "Boost gain for quiet environments":
@@ -1135,6 +1525,13 @@
       None: "Nenhum",
       "Local (llama.cpp)": "Local (llama.cpp)",
       "Local (Ollama)": "Local (Ollama)",
+      "Keep selected Ollama model ready": "Manter pronto o modelo Ollama selecionado",
+      "Keeps the selected local Ollama model loaded after use.":
+        "Mantém carregado o modelo Ollama local selecionado após o uso.",
+      "{count} minutes": {
+        one: "{count} minuto",
+        other: "{count} minutos",
+      },
       "Installed local model": "Modelo local instalado",
       "Refresh installed Ollama models": "Atualizar modelos Ollama instalados",
       "Refreshing…": "Atualizando…",
@@ -1174,8 +1571,17 @@
       Recording: "Gravando",
       Processing: "Processando",
       "Dictation ready": "Ditado pronto",
+      "Preparing models": "Preparando modelos",
       "e.g. gpt-4o-mini": "ex.: gpt-4o-mini",
       "Custom prompt": "Prompt personalizado",
+      "Prompt template": "Modelo de prompt",
+      Default: "Padrão",
+      Formal: "Formal",
+      Casual: "Informal",
+      Concise: "Conciso",
+      "Bullet points": "Marcadores",
+      "Choose a template, then edit the prompt below.":
+        "Escolha um modelo e edite o prompt abaixo.",
       "Leave empty to use the default": "Deixe vazio para usar o padrão",
       "Keyboard shortcuts": "Atalhos de teclado",
       "Dictation hotkey": "Atalho de ditado",
@@ -1207,14 +1613,7 @@
       "Clear all": "Limpar tudo",
       "Search transcriptions": "Buscar transcrições",
       Refresh: "Atualizar",
-      "History table": "Tabela de histórico",
-      Date: "Data",
-      Text: "Texto",
-      Words: "Palavras",
-      Duration: "Duração",
-      App: "Aplicativo",
-      Actions: "Ações",
-      "Original: {text}": "Original: {text}",
+      "Original text": "Texto original",
       "Not provided": "Não informado",
       "Copy transcription": "Copiar transcrição",
       "Delete transcription?": "Excluir transcrição?",
@@ -1300,6 +1699,68 @@
       "No learned corrections": "Nenhuma correção aprendida",
       "Automatic corrections will appear here.":
         "As correções automáticas aparecerão aqui.",
+      "Import community dictionary": "Importar dicionário da comunidade",
+      "Review a file or HTTPS link before adding it to your dictionaries.":
+        "Revise um arquivo ou link HTTPS antes de adicioná-lo aos seus dicionários.",
+      "Replacing {pack}": "Substituindo {pack}",
+      "Import source": "Fonte de importação",
+      File: "Arquivo",
+      "HTTPS link": "Link HTTPS",
+      "Dictionary file": "Arquivo de dicionário",
+      "Dictionary URL": "URL do dicionário",
+      "https://example.com/dictionary.json": "https://example.com/dictionary.json",
+      "Only public HTTPS links are fetched. GitHub files and Gists are supported.":
+        "Somente links HTTPS públicos são acessados. Arquivos e Gists do GitHub são aceitos.",
+      "Choose a dictionary file.": "Escolha um arquivo de dicionário.",
+      "Enter a dictionary URL.": "Informe a URL de um dicionário.",
+      "Could not read dictionary file.": "Não foi possível ler o arquivo de dicionário.",
+      "Could not preview dictionary.": "Não foi possível visualizar o dicionário.",
+      "Previewing…": "Gerando visualização…",
+      "Preview import": "Visualizar importação",
+      "Choose a Gist file": "Escolha um arquivo do Gist",
+      Choose: "Escolher",
+      "Review dictionary import": "Revisar importação de dicionário",
+      "Nothing is added until you confirm.": "Nada é adicionado até você confirmar.",
+      Name: "Nome",
+      Identifier: "Identificador",
+      License: "Licença",
+      Unspecified: "Não especificado",
+      Author: "Autor",
+      Terms: "Termos",
+      Aliases: "Variantes",
+      Duplicates: "Duplicados",
+      "Terms and recognized variants": "Termos e variantes reconhecidas",
+      "Update details": "Detalhes da atualização",
+      "No dictionary changes found.": "Nenhuma alteração no dicionário foi encontrada.",
+      Added: "Adicionados",
+      Removed: "Removidos",
+      Changed: "Alterados",
+      "Conflicts need acknowledgement": "Os conflitos precisam de confirmação",
+      "Personal entries keep priority over imported aliases.":
+        "Entradas pessoais têm prioridade sobre variantes importadas.",
+      "I understand these conflicts and want to continue.":
+        "Entendo estes conflitos e quero continuar.",
+      "Saving…": "Salvando…",
+      "Confirm import": "Confirmar importação",
+      "Community dictionaries": "Dicionários da comunidade",
+      "Imported dictionaries are stored locally and updated only when you ask.":
+        "Dicionários importados são armazenados localmente e atualizados apenas quando você solicitar.",
+      Community: "Comunidade",
+      "License: {license}": "Licença: {license}",
+      "Check for updates": "Verificar atualizações",
+      "Replace file": "Substituir arquivo",
+      "Remove community dictionary?": "Remover dicionário da comunidade?",
+      "The imported dictionary will be removed from this computer.":
+        "O dicionário importado será removido deste computador.",
+      Remove: "Remover",
+      "No community dictionaries imported yet.":
+        "Nenhum dicionário da comunidade foi importado ainda.",
+      "Community dictionary saved.": "Dicionário da comunidade salvo.",
+      "Could not save community dictionary.":
+        "Não foi possível salvar o dicionário da comunidade.",
+      "Community dictionary removed.": "Dicionário da comunidade removido.",
+      "Could not remove community dictionary.":
+        "Não foi possível remover o dicionário da comunidade.",
       "Voice shortcuts": "Atalhos de voz",
       "Use trigger phrases to insert recurring responses and text.":
         "Use frases de gatilho para inserir respostas e textos recorrentes.",
@@ -1323,8 +1784,8 @@
         "Baixe e gerencie os modelos disponíveis para transcrição local.",
       "GGML models are stored separately. Vulkan acceleration requires the AMD runtime and a Vulkan-capable driver.":
         "Os modelos GGML são armazenados separadamente. A aceleração Vulkan requer o ambiente de execução AMD e um driver compatível com Vulkan.",
-      "Total usage: {size} MB": "Uso total: {size} MB",
-      "~{size} MB": "~{size} MB",
+      "Total usage: {size}": "Uso total: {size}",
+      "~{size}": "~{size}",
       Active: "Ativo",
       Downloaded: "Baixado",
       "Not downloaded": "Não baixado",
@@ -1387,6 +1848,54 @@
       "Could not download model.": "Não foi possível baixar o modelo.",
       "Model deleted.": "Modelo excluído.",
       "Could not delete model.": "Não foi possível excluir o modelo.",
+      "Find an optimal dictation setup": "Encontrar uma configuração de ditado ideal",
+      "Review a local hardware recommendation before changing settings.":
+        "Revise uma recomendação de hardware local antes de alterar as configurações.",
+      "Try detection again": "Tentar a detecção novamente",
+      "CPU threads": "Threads da CPU",
+      "Total RAM": "RAM total",
+      "Available RAM": "RAM disponível",
+      Unknown: "Desconhecido",
+      "No acceleration": "Sem aceleração",
+      VRAM: "VRAM",
+      "Available VRAM": "VRAM disponível",
+      "Recommended setup": "Configuração recomendada",
+      "Approximate download: {size}": "Download aproximado: {size}",
+      "Model is already downloaded.": "O modelo já foi baixado.",
+      "Model will be downloaded before settings change.":
+        "O modelo será baixado antes de alterar as configurações.",
+      "This is a conservative hardware estimate, not a performance benchmark.":
+        "Esta é uma estimativa conservadora de hardware, não um teste de desempenho.",
+      "AMD/Vulkan support may require the AMD extra:":
+        "O suporte a AMD/Vulkan pode exigir o extra AMD:",
+      "Detect optimal setup": "Detectar configuração ideal",
+      "Review detected hardware and apply only the recommended STT settings.":
+        "Revise o hardware detectado e aplique apenas as configurações STT recomendadas.",
+      "Detecting…": "Detectando…",
+      "Apply setup": "Aplicar configuração",
+      "Download and apply": "Baixar e aplicar",
+      Later: "Mais tarde",
+      "Applying…": "Aplicando…",
+      "Could not detect an optimal setup.":
+        "Não foi possível detectar uma configuração ideal.",
+      "Could not save setup preference.":
+        "Não foi possível salvar a preferência de configuração.",
+      "Could not apply the recommended setup.":
+        "Não foi possível aplicar a configuração recomendada.",
+      "Setup saved. Restart LinuxWhispr to activate the recommendation.":
+        "Configuração salva. Reinicie o LinuxWhispr para ativar a recomendação.",
+      "Setup warning: gpu_memory_unknown":
+        "A memória da GPU não está disponível.",
+      "Setup warning: ram_unknown": "A RAM disponível não está disponível.",
+      "Setup warning: amd_runtime_missing":
+        "O suporte de execução AMD/Vulkan não está disponível.",
+      "Setup warning: vulkan_unavailable":
+        "A aceleração Vulkan não está disponível.",
+      "Setup warning: cuda_unavailable": "A aceleração CUDA não está disponível.",
+      "Setup warning: low_memory": "A memória disponível é limitada.",
+      "Setup reason: cuda": "A aceleração CUDA foi selecionada.",
+      "Setup reason: vulkan": "A aceleração Vulkan foi selecionada.",
+      "Setup reason: cpu": "O processamento de CPU foi selecionado.",
     },
   };
 
@@ -1404,6 +1913,19 @@
     const number = Number(value);
     return new Intl.NumberFormat(localeTag(code), options || {}).format(
       Number.isFinite(number) ? number : 0,
+    );
+  }
+
+  function formatMegabytes(code, value) {
+    const megabytes = Number(value);
+    const amount = Number.isFinite(megabytes) && megabytes >= 0 ? megabytes : 0;
+    const unit = amount >= 1000 ? "GB" : "MB";
+    const displayValue = amount >= 1000 ? amount / 1000 : amount;
+    return (
+      formatNumber(code, displayValue, {
+        maximumFractionDigits: 1,
+        minimumFractionDigits: unit === "GB" ? 1 : 0,
+      }) + ` ${unit}`
     );
   }
 
@@ -1459,6 +1981,7 @@
     localeTag,
     translate,
     formatNumber,
+    formatMegabytes,
     formatDate,
     formatDuration,
   };

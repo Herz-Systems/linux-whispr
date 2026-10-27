@@ -146,7 +146,7 @@ BUNDLED_PACKS: tuple[DictionaryPack, ...] = (
         terms=(
             PackTerm("OpenAI", ("open a i", "open ai")),
             PackTerm("Ollama", ("ol lama", "ollama")),
-            PackTerm("ChatGPT", ("chat g p t", "chat gpt")),
+            PackTerm("ChatGPT", ("chat g p t", "chat gpt", "JetGPT")),
             PackTerm("GPT", ("g p t",)),
             PackTerm("LLM", ("l l m",)),
             PackTerm("RAG", ("r a g",)),

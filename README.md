@@ -77,7 +77,7 @@ sudo pacman -S wtype wl-clipboard        # Wayland
 ### Standard install
 
 ```bash
-git clone https://github.com/linx-systems/linux-whispr.git
+git clone https://github.com/Herz-Systems/linux-whispr.git
 cd linux-whispr
 ./install.sh
 ```
@@ -134,8 +134,9 @@ GGML_VULKAN=1 CMAKE_INSTALL_RPATH='$ORIGIN' CMAKE_BUILD_WITH_INSTALL_RPATH=ON \
   python -m pip install --no-binary=pywhispercpp ".[amd]"
 ```
 
-After installing, select **whisper.cpp (AMD / Vulkan)** and the **Vulkan**
-device in settings, then download a GGML model. GGML models are separate from
+After installing, use **Settings → Detect Optimal Setup** to check the actual
+runtime and select a suitable backend/model, or select **whisper.cpp (AMD /
+Vulkan)** and the **Vulkan** device manually. GGML models are separate from
 `faster-whisper` models. When Vulkan cannot initialize, LinuxWhispr reports the
 error rather than silently changing to CPU; choose the `cpu` device explicitly
 if needed.
@@ -150,18 +151,59 @@ linux-whispr
 
 `linux-whispr` and `linux-whispr-web` are aliases for the same combined
 application: each starts the dictation engine and dashboard. On a normal first
-launch, LinuxWhispr uses defaults; run `linux-whispr --setup` only to use the
-optional setup wizard.
+launch, the dashboard offers automatic hardware detection; defaults remain
+unchanged until you apply a recommendation. Run `linux-whispr --setup` only
+to use the optional setup wizard.
 
 While the application runs, the dashboard is available at
 `http://127.0.0.1:7865` by default. Opening it does not start recording.
 
+In **Settings → Startup behavior**, independent switches control launching:
+
+- **Launch LinuxWhispr on startup**
+  enables desktop-login autostart, not a system service before login. It takes
+  effect at the next login and is disabled by default. Switching it off removes
+  the application's XDG autostart entry; `XDG_CONFIG_HOME` is respected.
+- **Open dashboard on launch** controls only the
+  automatic browser window or tab on the next application launch and is enabled
+  by default. The dashboard server always starts, even with this switch off.
+  You can still open its URL yourself or choose **Open Dashboard** in the tray.
+- **Preload local models on launch** is enabled by default. After the dashboard
+  and dictation controls are ready, LinuxWhispr prepares the selected cached local
+  speech model and, when enabled, the selected local Ollama model in the
+  background. This does not download models or warm up cloud backends.
+
+These preferences are saved automatically and apply on the next launch.
+The switches share one group without internal dividers, arranged in a grid
+on wide screens and stacked on narrow screens.
+
+Dashboard sections have bookmarkable URLs: `/` (Dashboard), `/settings`,
+`/history`, `/dictionary`, `/snippets`, and `/models`. Reloading a page keeps
+that section open, and browser Back/Forward follows section navigation.
+
+History gives each transcript the full entry width, with its date, app, word
+count, duration, and copy/delete actions above the text. Paragraph breaks are
+preserved. When refinement changed the text, expand **Original text** to read
+the original dictation.
+
 The default transcription language is Portuguese (`pt`). Set `stt.language` to
 the ISO 639-1 code you need, or to `auto` for `faster-whisper` language detection.
+AI refinement receives the selected transcription language, or the detected
+language when automatic detection is enabled. Its system instructions require
+preserving the transcription's language rather than translating it, including
+mixed-language passages and technical terms. If no language is known, refinement
+is instructed to preserve the language of the input text.
+
+In **Settings → AI refinement**, use the **Formal**, **Casual**, **Concise**, or
+**Bullet points** quick-action buttons above **Custom prompt**. Clicking one
+fills the prompt and saves automatically; edit the text to tailor it. The
+**Default** button restores automatic app-context formatting. Custom
+instructions replace the default style while preserving the transcription's
+language and meaning. Restart LinuxWhispr to apply refinement changes.
 
 1. Press **F12** (the default dictation hotkey) to start recording.
 2. Speak.
-3. Press **F12** again, or wait for the default two seconds of silence.
+3. Press **F12** again, or wait for the default 1.2 seconds of silence.
 4. LinuxWhispr transcribes, optionally refines and corrects, then pastes the
    result into the focused application.
 
@@ -177,6 +219,43 @@ independently of the transcription language. Settings generally take effect
 after an application restart. Personal dictionary entries, recognized variants,
 and pack selections update the active dictionary and apply to the next
 dictation without a restart.
+
+The dashboard uses your system color scheme until you choose a light or dark
+theme with its theme control; the browser remembers that choice. On narrow
+screens, the menu button opens the same section navigation. The overview shows
+the configured dictation shortcut, current setup, usage, and recent transcripts.
+
+Live dictation status appears at the bottom of the sidebar, above the theme
+switch. The badge stays visible during background status checks.
+
+### Detect Optimal Setup
+
+On the first dashboard visit, LinuxWhispr checks CPU capacity, available RAM,
+GPU memory, and locally usable CUDA/Vulkan runtimes. Run the check again from
+**Settings → Detect Optimal Setup**. The settings panel starts collapsed; the
+Detect button opens it and runs the check. Once results are available, its heading
+lets you expand or collapse them without starting detection; before then the
+disclosure control is unavailable. Loading and error messages remain visible.
+Hardware memory and setup download estimates use decimal GB with one decimal
+place, converted from the underlying MiB values. Other model and disk-size
+displays retain MB below 1,000 MB and use one-decimal GB for larger values.
+Detection is local and does not download models, install drivers, or change your
+settings.
+
+The recommendation favors multilingual `large-v3-turbo` on a usable GPU with
+sufficient memory, and smaller models for constrained GPUs or CPU-only systems.
+These are conservative memory/latency heuristics, not a benchmark or a guarantee
+of the best model for every recording. Software Vulkan renderers such as
+llvmpipe are not treated as GPU acceleration; missing dependencies or unknown
+memory are reported rather than assumed usable.
+
+Review the detected hardware and model, then select **Download and apply**
+(or **Apply setup** for an existing model). The matching backend-specific model
+is prepared before settings are saved. Your transcription language and unrelated
+settings are preserved. **Restart LinuxWhispr to activate the new STT setup**;
+the running engine is not silently reconfigured. Dismissing first-run setup
+leaves the manual detection action available. Dashboard configuration also
+respects a configuration file selected with `--config`.
 
 ## Dictionary packs and corrections
 
@@ -223,6 +302,64 @@ and the recognition-context guidance in
 [Voxtype](https://github.com/peteonrails/voxtype/blob/main/docs/USER_MANUAL.md).
 No third-party dictionary downloads are required at runtime.
 
+### Community dictionaries
+
+In **Dictionary → Import community dictionary**, choose a UTF-8 JSON/CSV file
+or a public HTTPS link. GitHub file links and public Gists are supported; when
+a Gist contains multiple compatible files, choose the file to review.
+
+The preview shows the publisher's metadata, terms, recognized variants,
+duplicates, and conflicts. Nothing is installed until you select **Confirm
+import**. Conflicts require acknowledgement; personal entries keep priority.
+Review the source and license before importing third-party vocabulary.
+
+Imported packs appear under **Community dictionaries** and are enabled after
+installation. They are stored in the local `dictionary.json`, work offline,
+and can be toggled or removed without changing personal entries or bundled
+packs. Changes apply to the next dictation without restarting.
+
+Updates are manual: use **Check for updates** for a URL-backed pack or
+**Replace file** for a file-backed pack. Review the added, removed, and changed
+entries before confirming. Updating preserves the pack's enabled/disabled
+state. Sources are never checked automatically.
+
+The native JSON format is versioned:
+
+```json
+{
+  "format": "linux-whispr-dictionary",
+  "schema_version": 1,
+  "id": "my-ai-vocabulary",
+  "name": "My AI vocabulary",
+  "license": "CC0-1.0",
+  "entries": [
+    {"word": "ChatGPT", "aliases": ["JetGPT"]},
+    {"word": "Ollama"}
+  ]
+}
+```
+
+The JSON Schema is available from the running dashboard at
+`/api/dictionary/schema`. Optional metadata includes `author`, `description`,
+and `sources` (objects with `title` and `url`). A term without aliases is a
+recognition hint, not a broad sound-alike replacement. Publisher IDs never
+overwrite an existing pack automatically.
+
+Wispr-compatible CSV has no header: one column is a recognition hint, and
+two columns mean `heard,corrected`. For example:
+
+```csv
+JetGPT,ChatGPT
+Ollama
+```
+
+Imports are limited to 1 MiB of UTF-8 content, 5,000 terms, 20,000 aliases,
+and 200 characters per term or alias. Ambiguous aliases within a file,
+unsupported versions, and malformed data are rejected. Remote imports use
+public HTTPS on port 443 only; private/local destinations and unsafe redirects
+are rejected. Importing or checking a URL contacts its host (and GitHub's API
+for Gists); ordinary use of an installed pack does not require that connection.
+
 ## Configuration and local data
 
 By default, configuration and dictionary data are stored under
@@ -239,6 +376,8 @@ For example, edit the default configuration at
 `~/.config/linux-whispr/config.toml`:
 
 ```toml
+preload_models = true       # prepare already cached local models in the background
+
 [hotkey]
 dictation = "F12"
 
@@ -254,7 +393,7 @@ enabled = false
 backend = "none"            # local, ollama, or an explicitly configured cloud backend
 
 [audio]
-silence_duration = 2.0
+silence_duration = 1.2
 silence_threshold = 0.5
 
 [injection]
@@ -287,7 +426,14 @@ refinement require an application restart.
 enabled = true
 backend = "ollama"
 model = "qwen3.5:4b"
+keep_alive_minutes = 15
 ```
+
+**Keep selected Ollama model ready** offers 5, 15, or 30 minutes; the default is
+15 minutes. LinuxWhispr requests this finite residency when preloading and after
+each refinement, without periodic keep-alive requests or changing Ollama's global
+settings. Ollama can still evict a model under memory pressure. Changing this
+setting takes effect after an application restart.
 
 The following recommendations are practical multilingual starting points, not a
 dictation-quality benchmark. Download sizes are approximate and runtime memory
@@ -320,6 +466,26 @@ keeps the original transcription.
 - **Vulkan fails to load:** confirm the Vulkan driver and GGML model, then
   select `cpu` for `whisper-cpp` when GPU acceleration is unavailable.
 
+### Dictation latency
+
+Automatic stop waits for the configured `audio.silence_duration` (1.2 seconds by
+default). Adjust **Settings → Audio → Silence duration** in 0.1-second steps;
+increase it if your normal pauses end dictation too soon. Existing configured
+durations are preserved when updating. Press the dictation hotkey again to stop
+without waiting for silence.
+
+The first dictation can still wait if background preparation has not finished
+or is disabled. Later dictations reuse the loaded speech model. Ollama refinement
+can have a cold-start delay again after its configured residency expires.
+Preparation failures are nonfatal; normal dictation retries loading on demand.
+
+Speech recognition and optional AI refinement run in sequence. Refinement must
+generate the cleaned text, so it can take longer than recognition on long
+dictations even when both models use the GPU. Ollama's local-model eligibility
+is checked once per refinement, immediately before generation, without caching
+the result. Voice detection uses one CPU inference thread to avoid an unnecessary
+per-core worker pool for its small recurrent chunks.
+
 ## Development
 
 From a repository checkout:
@@ -337,6 +503,24 @@ uv run --extra dev mypy src/
 # Browser-localization tests
 node --test tests/web_i18n.test.js
 ```
+
+For isolated interface work, start only the dashboard with disposable data:
+
+```bash
+preview_root="$(mktemp -d)"
+XDG_CONFIG_HOME="$preview_root/config" \
+XDG_DATA_HOME="$preview_root/data" \
+XDG_CACHE_HOME="$preview_root/cache" \
+uv run uvicorn linux_whispr.web.server:app --host 127.0.0.1 --port 7866
+```
+
+Open `http://127.0.0.1:7866`. This starts no dictation engine, tray, or global
+hotkeys. Changes stay in the temporary directories. The dictation-unavailable
+status is expected in this preview; the regular launchers start the combined app.
+
+For History layout checks, include long multiline text, a differing original,
+and a long app name. Verify wide and narrow layouts without horizontal scrolling,
+and keep search and entry actions easy to reach.
 
 ## Architecture
 

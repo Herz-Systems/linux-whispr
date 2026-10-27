@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
+import pytest
+
+from linux_whispr.features.community_dictionary import CommunityDictionaryConflict
 from linux_whispr.features.dictionary import Dictionary
 
 
@@ -126,3 +130,151 @@ class TestDictionaryPacks:
         assert dictionary.apply_corrections("straßen bahn STRAẞEN BAHN c l ı") == (
             "Straßenbahn Straßenbahn CLI"
         )
+
+
+def _community_document(entries: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "format": "linux-whispr-dictionary",
+        "schema_version": 1,
+        "id": "community-terms",
+        "name": "Community terms",
+        "entries": entries,
+    }
+
+
+def _community_source() -> dict[str, str]:
+    return {"kind": "file", "filename": "terms.json"}
+
+
+class TestCommunityDictionaryConflictPolicy:
+    def test_unicode_equivalent_personal_aliases_win_preview_and_runtime(
+        self, tmp_path: Path
+    ) -> None:
+        dictionary = Dictionary(tmp_path / "dictionary.json")
+        dictionary.add_word("Personal", aliases=["ı", "ſ", "K", "ß"])
+        document = _community_document(
+            [
+                {"word": "Community", "aliases": ["i", "s", "k"]},
+                {"word": "Double S", "aliases": ["ss"]},
+            ]
+        )
+
+        preview = dictionary.preview_community_pack(document, source=_community_source())
+        dictionary.install_community_pack(
+            document, source=_community_source(), expected_revision=preview["revision"]
+        )
+
+        assert {conflict["alias"] for conflict in preview["conflicts"]} == {"i", "s", "k"}
+        assert dictionary.apply_corrections("i I İ ı s S ſ k K K") == (
+            "Personal Personal Personal Personal Personal Personal Personal "
+            "Personal Personal Personal"
+        )
+        assert dictionary.apply_corrections("ss ß") == "Double S Personal"
+
+    def test_preview_and_install_share_promotion_threshold_policy(
+        self, tmp_path: Path
+    ) -> None:
+        dictionary = Dictionary(tmp_path / "dictionary.json")
+        dictionary.add_word("Learned spelling", source="auto-learned", aliases=["heard"])
+        dictionary.add_word("Learned spelling")
+        dictionary.add_word("Learned spelling")
+        document = _community_document(
+            [{"word": "Community spelling", "aliases": ["heard"]}]
+        )
+
+        default_preview = dictionary.preview_community_pack(
+            document, source=_community_source()
+        )
+        threshold_preview = dictionary.preview_community_pack(
+            document, source=_community_source(), promotion_threshold=3
+        )
+
+        assert default_preview["conflicts"]
+        assert threshold_preview["conflicts"] == []
+        assert default_preview["revision"] != threshold_preview["revision"]
+        with pytest.raises(CommunityDictionaryConflict):
+            dictionary.install_community_pack(
+                document,
+                source=_community_source(),
+                expected_revision=threshold_preview["revision"],
+            )
+
+        dictionary.install_community_pack(
+            document,
+            source=_community_source(),
+            expected_revision=threshold_preview["revision"],
+            promotion_threshold=3,
+        )
+
+        assert dictionary.apply_corrections("heard") == "Learned spelling"
+        assert (
+            dictionary.apply_corrections("heard", promotion_threshold=3)
+            == "Community spelling"
+        )
+
+    def test_updating_earlier_pack_reports_later_pack_alias_takeover(
+        self, tmp_path: Path
+    ) -> None:
+        dictionary = Dictionary(tmp_path / "dictionary.json")
+        first = _community_document([{"word": "First", "aliases": ["first alias"]}])
+        first_preview = dictionary.preview_community_pack(first, source=_community_source())
+        first_id = dictionary.install_community_pack(
+            first, source=_community_source(), expected_revision=first_preview["revision"]
+        )
+        second = _community_document([{"word": "Second", "aliases": ["shared alias"]}])
+        second_preview = dictionary.preview_community_pack(second, source=_community_source())
+        dictionary.install_community_pack(
+            second, source=_community_source(), expected_revision=second_preview["revision"]
+        )
+        replacement = _community_document(
+            [{"word": "Updated first", "aliases": ["shared alias"]}]
+        )
+
+        update_preview = dictionary.preview_community_pack(
+            replacement, source=_community_source(), pack_id=first_id
+        )
+
+        assert update_preview["conflicts"] == [
+            {
+                "alias": "shared alias",
+                "existing": "Second",
+                "incoming": "Updated first",
+                "scope": "pack",
+            }
+        ]
+        dictionary.install_community_pack(
+            replacement,
+            source=_community_source(),
+            expected_revision=update_preview["revision"],
+            pack_id=first_id,
+        )
+        assert dictionary.apply_corrections("shared alias") == "Updated first"
+
+    def test_pack_reorder_invalidates_pending_preview(self, tmp_path: Path) -> None:
+        path = tmp_path / "dictionary.json"
+        dictionary = Dictionary(path)
+        first = _community_document([{"word": "First", "aliases": ["first alias"]}])
+        first_preview = dictionary.preview_community_pack(first, source=_community_source())
+        dictionary.install_community_pack(
+            first, source=_community_source(), expected_revision=first_preview["revision"]
+        )
+        second = _community_document([{"word": "Second", "aliases": ["second alias"]}])
+        second_preview = dictionary.preview_community_pack(second, source=_community_source())
+        dictionary.install_community_pack(
+            second, source=_community_source(), expected_revision=second_preview["revision"]
+        )
+        pending = _community_document([{"word": "Pending", "aliases": ["pending alias"]}])
+        preview = dictionary.preview_community_pack(pending, source=_community_source())
+
+        persisted = json.loads(path.read_text(encoding="utf-8"))
+        records = persisted["community_packs"]
+        persisted["community_packs"] = {
+            pack_id: records[pack_id] for pack_id in reversed(records)
+        }
+        path.write_text(json.dumps(persisted), encoding="utf-8")
+        dictionary.load()
+
+        with pytest.raises(CommunityDictionaryConflict):
+            dictionary.install_community_pack(
+                pending, source=_community_source(), expected_revision=preview["revision"]
+            )

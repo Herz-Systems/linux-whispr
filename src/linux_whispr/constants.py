@@ -37,7 +37,7 @@ AUDIO_BLOCKSIZE = 1024
 
 # VAD defaults
 VAD_THRESHOLD = 0.5
-VAD_SILENCE_DURATION = 2.0  # seconds of silence before auto-stop
+VAD_SILENCE_DURATION = 1.2  # seconds of silence before auto-stop
 VAD_MIN_SPEECH_DURATION = 0.3  # minimum speech to consider valid
 
 # Recording limits
@@ -81,6 +81,10 @@ CORRECTION_PROMOTION_THRESHOLD = 2  # times a correction must be seen
 
 # History
 HISTORY_RETENTION_DAYS = 30
+
+# Ollama model residency
+DEFAULT_OLLAMA_KEEP_ALIVE_MINUTES = 15
+OLLAMA_KEEP_ALIVE_OPTIONS = (5, 15, 30)
 
 # Web dashboard
 WEB_DEFAULT_PORT = 7865

@@ -12,7 +12,11 @@ router = APIRouter(tags=["status"])
 @router.get("/status")
 async def get_status(request: Request) -> dict[str, object]:
     """Report whether this dashboard has an attached dictation runtime."""
-    runtime: dict[str, bool | str] = {"available": False, "state": "unavailable"}
+    runtime: dict[str, bool | str] = {
+        "available": False,
+        "state": "unavailable",
+        "models_preparing": False,
+    }
     provider = getattr(request.app.state, "runtime_status_provider", None)
     if callable(provider):
         try:
@@ -27,6 +31,7 @@ async def get_status(request: Request) -> dict[str, object]:
             runtime = {
                 "available": True,
                 "state": reported_runtime["state"],
+                "models_preparing": reported_runtime.get("models_preparing") is True,
             }
 
     return {

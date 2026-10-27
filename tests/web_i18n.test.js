@@ -9,13 +9,18 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
 const i18n = require(path.join(root, "src/linux_whispr/web/static/i18n.js"));
 
-function appWithStorage(storage) {
+function appWithStorage(storage, globals = {}) {
+  const { window: windowOverrides = {}, ...contextGlobals } = globals;
   const context = {
     WhisprI18n: i18n,
     window: {
       WhisprI18n: i18n,
       localStorage: storage,
       matchMedia: () => ({ matches: false }),
+      location: { pathname: "/" },
+      addEventListener() {},
+      removeEventListener() {},
+      ...windowOverrides,
     },
     localStorage: storage,
     document: {},
@@ -25,6 +30,7 @@ function appWithStorage(storage) {
     setTimeout() {
       return 1;
     },
+    ...contextGlobals,
   };
   vm.createContext(context);
   vm.runInContext(
@@ -171,6 +177,12 @@ test("translations select plural forms and localize count, date, numbers, and du
   assert.equal(i18n.formatDuration("pt", 1.25), "1,3 s");
   assert.notEqual(i18n.formatDate("en", "2026-06-15T12:34:00"), "");
   assert.equal(i18n.formatDate("pt", "not a date"), "");
+  const germanMinutes = i18n.translate("de", "{count} minutes", { count: 15 });
+  assert.ok(germanMinutes.startsWith(i18n.formatNumber("de", 15)));
+  assert.notEqual(
+    germanMinutes,
+    i18n.translate("en", "{count} minutes", { count: 15 }),
+  );
   assert.equal(i18n.formatDate("de", 0), "");
 });
 
@@ -308,6 +320,29 @@ test("a completed settings save refreshes active models on the models page", asy
   assert.equal(app.models[0].active, true);
 });
 
+test("preload settings autosave with the selected residency duration", async () => {
+  const app = appWithStorage({ getItem: () => null, setItem() {} });
+  const saved = [];
+  app.config = {
+    stt: { model: "small" },
+    audio: { silence_duration: 2.0 },
+    preload_models: false,
+    ai: { backend: "ollama", keep_alive_minutes: 30 },
+  };
+  app.api = async (url, options = {}) => {
+    assert.equal(url, "/api/config");
+    saved.push(JSON.parse(options.body));
+    return { status: "ok" };
+  };
+
+  await app.saveConfig();
+
+  assert.equal(saved[0].preload_models, false);
+  assert.equal(saved[0].ai.keep_alive_minutes, 30);
+  assert.equal(saved[0].stt.model, "small");
+  assert.equal(saved[0].audio.silence_duration, 2.0);
+});
+
 test("Ollama keeps a separate model choice for each AI backend", async () => {
   const app = appWithStorage({ getItem: () => null, setItem() {} });
   const saved = [];
@@ -441,8 +476,11 @@ test("Ollama picker filters metadata and only commits installed models or clear"
 
 test("dictation status distinguishes engine state from dashboard reachability", () => {
   const app = appWithStorage({ getItem: () => null, setItem() {} });
-  app.status = { status: "running", runtime: { available: true, state: "idle" } };
-  assert.equal(app.dictationStatusLabel(), "Dictation ready");
+  app.status = {
+    status: "running",
+    runtime: { available: true, state: "idle", models_preparing: true },
+  };
+  assert.equal(app.dictationStatusLabel(), "Preparing models");
   app.status.runtime.state = "recording";
   assert.equal(app.dictationStatusLabel(), "Recording");
   app.status.runtime.state = "processing";
@@ -451,6 +489,88 @@ test("dictation status distinguishes engine state from dashboard reachability", 
   assert.equal(app.dictationStatusLabel(), "Dictation unavailable");
   app.errors.status = "Could not check the dashboard connection.";
   assert.equal(app.dictationStatusLabel(), "Panel unavailable");
+});
+
+test("status refresh serializes preparation transitions and releases its timer", async () => {
+  const callbacks = [];
+  const cleared = [];
+  const app = appWithStorage(
+    { getItem: () => null, setItem() {} },
+    {
+      window: {
+        setInterval(callback) {
+          callbacks.push(callback);
+          return callback;
+        },
+        clearInterval(timer) {
+          cleared.push(timer);
+        },
+      },
+    },
+  );
+  const responses = [];
+  app.api = () =>
+    new Promise((resolve) => {
+      responses.push(resolve);
+    });
+
+  const preparing = app.loadStatus();
+  const duplicate = app.loadStatus();
+  assert.equal(preparing, duplicate);
+  assert.equal(responses.length, 1);
+  responses.shift()({
+    status: "running",
+    runtime: { available: true, state: "idle", models_preparing: true },
+  });
+  await preparing;
+  assert.equal(app.dictationStatusLabel(), "Preparing models");
+
+  const ready = app.loadStatus();
+  responses.shift()({
+    status: "running",
+    runtime: { available: true, state: "idle", models_preparing: false },
+  });
+  await ready;
+  assert.equal(app.dictationStatusLabel(), "Dictation ready");
+
+  app.startStatusRefresh();
+  app.destroy();
+  assert.equal(callbacks.length, 1);
+  assert.equal(cleared.length, 1);
+});
+
+test("status refresh pauses while the dashboard tab is hidden", () => {
+  const document = { visibilityState: "hidden" };
+  const callbacks = [];
+  const cleared = [];
+  const app = appWithStorage(
+    { getItem: () => null, setItem() {} },
+    {
+      document,
+      window: {
+        setInterval(callback) {
+          callbacks.push(callback);
+          return callback;
+        },
+        clearInterval(timer) {
+          cleared.push(timer);
+        },
+      },
+    },
+  );
+  app.api = async () => ({
+    status: "running",
+    runtime: { available: true, state: "idle", models_preparing: false },
+  });
+
+  app.startStatusRefresh();
+  assert.equal(callbacks.length, 0);
+  document.visibilityState = "visible";
+  app.handleStatusVisibilityChange();
+  assert.equal(callbacks.length, 1);
+  document.visibilityState = "hidden";
+  app.handleStatusVisibilityChange();
+  assert.equal(cleared.length, 1);
 });
 
 test("dictionary pack save failure restores server state and ignores a duplicate toggle", async () => {
@@ -488,4 +608,557 @@ test("dictionary pack save failure restores server state and ignores a duplicate
     app.dictionaryPackErrors.coding,
     "Could not update dictionary pack.",
   );
+});
+
+test("dictionary imports show bounded server details and clear them on a new request", async () => {
+  let detail = "x".repeat(501);
+  let responseKind = "json";
+  const app = appWithStorage(
+    { getItem: () => null, setItem() {} },
+    {
+      fetch: async () => {
+        if (responseKind === "connection") throw new Error("offline");
+        return {
+          ok: false,
+          text: async () =>
+            responseKind === "json" ? JSON.stringify({ detail }) : "not JSON",
+        };
+      },
+    },
+  );
+
+  await assert.rejects(app.api("/api/dictionary/import/preview"), (error) => {
+    assert.equal(error.message, "request-failed");
+    assert.equal(error.detail, detail.slice(0, 500));
+    return true;
+  });
+
+  detail = "Dictionary URLs must use a public hostname, not an IP address.";
+  await app.requestDictionaryImportPreview(() =>
+    app.api("/api/dictionary/import/preview"),
+  );
+  assert.equal(app.dictionaryImportError, "Could not preview dictionary.");
+  assert.equal(app.dictionaryImportErrorDetail, detail);
+
+  app.invalidateDictionaryImportPreview();
+  assert.equal(app.dictionaryImportErrorDetail, "");
+
+  responseKind = "connection";
+  await app.requestDictionaryImportPreview(() =>
+    app.api("/api/dictionary/import/preview"),
+  );
+  assert.equal(app.dictionaryImportError, "Could not preview dictionary.");
+  assert.equal(app.dictionaryImportErrorDetail, "");
+
+  responseKind = "json";
+  detail = "Community dictionary preview is stale.";
+  app.dictionaryImportToken = "preview-token";
+  app.dictionaryImportPreview = {};
+  await app.confirmDictionaryImport();
+  assert.equal(app.dictionaryImportError, "Could not save community dictionary.");
+  assert.equal(app.dictionaryImportErrorDetail, detail);
+});
+
+test("first-run detection is read-only and existing configurations do not auto-detect", async () => {
+  const firstRun = appWithStorage({ getItem: () => null, setItem() {} });
+  const calls = [];
+  firstRun.pageForPath = () => "dashboard";
+  firstRun.attachConfirmationDialogListener = () => {};
+  firstRun.loadStatus = async () => {};
+  firstRun.loadStats = async () => {};
+  firstRun.loadConfig = async () => {
+    firstRun.config = { first_run: true, stt: {} };
+  };
+  firstRun.loadHistory = async () => {};
+  firstRun.loadRecentHistory = async () => {};
+  firstRun.loadDictionary = async () => {};
+  firstRun.loadSnippets = async () => {};
+  firstRun.loadModels = async () => {};
+  firstRun.loadDiskUsage = async () => {};
+  firstRun.api = async (url) => {
+    calls.push(url);
+    return {
+      status: "ok",
+      hardware: { cpu_threads: 8, ram_total_mb: 8192, gpus: [] },
+      recommendation: {
+        backend: "faster-whisper",
+        model: "small",
+        device: "cpu",
+        compute_type: "int8",
+        downloaded: false,
+      },
+      warnings: [],
+    };
+  };
+  await firstRun.init();
+  assert.deepEqual(calls, ["/api/setup/detect"]);
+  assert.equal(firstRun.config.first_run, true);
+
+  const existing = appWithStorage({ getItem: () => null, setItem() {} });
+  existing.pageForPath = () => "dashboard";
+  existing.attachConfirmationDialogListener = () => {};
+  existing.loadStatus = async () => {};
+  existing.loadStats = async () => {};
+  existing.loadConfig = async () => {
+    existing.config = { first_run: false, stt: {} };
+  };
+  existing.loadHistory = async () => {};
+  existing.loadRecentHistory = async () => {};
+  existing.loadDictionary = async () => {};
+  existing.loadSnippets = async () => {};
+  existing.loadModels = async () => {};
+  existing.loadDiskUsage = async () => {};
+  existing.api = async () => {
+    throw new Error("existing installations must not auto-detect");
+  };
+  await existing.init();
+
+  const manualCalls = [];
+  existing.api = async (url) => {
+    manualCalls.push(url);
+    return {
+      status: "ok",
+      hardware: { cpu_threads: 4, ram_total_mb: null, gpus: [] },
+      recommendation: {
+        backend: "faster-whisper",
+        model: "base",
+        device: "cpu",
+        compute_type: "int8",
+        downloaded: false,
+      },
+      warnings: ["ram_unknown"],
+    };
+  };
+  await existing.detectOptimalSetup();
+  assert.deepEqual(manualCalls, ["/api/setup/detect"]);
+  assert.equal(existing.config.first_run, false);
+});
+
+test("a stale detection response cannot replace the newer recommendation", async () => {
+  const app = appWithStorage({ getItem: () => null, setItem() {} });
+  const pending = [];
+  app.api = () =>
+    new Promise((resolve) => {
+      pending.push(resolve);
+    });
+
+  const first = app.detectOptimalSetup();
+  const second = app.detectOptimalSetup();
+  pending[1]({
+    status: "ok",
+    hardware: { cpu_threads: 8, gpus: [] },
+    recommendation: { model: "small", downloaded: false },
+    warnings: [],
+  });
+  await second;
+  pending[0]({
+    status: "ok",
+    hardware: { cpu_threads: 1, gpus: [] },
+    recommendation: { model: "tiny", downloaded: false },
+    warnings: [],
+  });
+  await first;
+
+  assert.equal(app.setup.detection.recommendation.model, "small");
+  assert.equal(app.loading.setup, false);
+});
+
+test("a failed setup save restores only recommendation-owned settings", async () => {
+  const app = appWithStorage({ getItem: () => null, setItem() {} });
+  const original = {
+    first_run: true,
+    stt: {
+      backend: "faster-whisper",
+      model: "base",
+      device: "cpu",
+      compute_type: "int8",
+      language: "pt",
+    },
+  };
+  app.config = JSON.parse(JSON.stringify(original));
+  app.setup.detection = {
+    recommendation: {
+      backend: "whisper-cpp",
+      model: "base",
+      device: "vulkan",
+      compute_type: "auto",
+      downloaded: true,
+    },
+  };
+  app.loadModels = async () => {};
+  app.loadDiskUsage = async () => {};
+  const calls = [];
+  app.api = async (url) => {
+    calls.push(url);
+    if (url.includes("/download?")) return { status: "ok" };
+    throw new Error("save failed");
+  };
+
+  await app.applyOptimalSetup();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(app.config)), original);
+  assert.deepEqual(calls, [
+    "/api/models/base/download?backend=whisper-cpp",
+    "/api/config",
+  ]);
+  assert.equal(app.errors.setup, "Could not apply the recommended setup.");
+  assert.equal(app.setup.success, "");
+});
+
+test("a failed setup download leaves the current configuration untouched", async () => {
+  const app = appWithStorage({ getItem: () => null, setItem() {} });
+  const original = {
+    first_run: true,
+    stt: { backend: "faster-whisper", model: "base", language: "de" },
+    audio: { vad_threshold: 0.4 },
+  };
+  app.config = JSON.parse(JSON.stringify(original));
+  app.setup.detection = {
+    recommendation: {
+      backend: "whisper-cpp",
+      model: "small",
+      device: "vulkan",
+      compute_type: "auto",
+      downloaded: false,
+    },
+  };
+  const calls = [];
+  app.api = async (url) => {
+    calls.push(url);
+    throw new Error("download failed");
+  };
+
+  await app.applyOptimalSetup();
+
+  assert.deepEqual(app.config, original);
+  assert.deepEqual(calls, ["/api/models/small/download?backend=whisper-cpp"]);
+  assert.equal(app.errors.setup, "Could not apply the recommended setup.");
+});
+
+test("setup download completes before it saves only recommended STT fields", async () => {
+  const app = appWithStorage({ getItem: () => null, setItem() {} });
+  app.config = {
+    first_run: true,
+    stt: {
+      backend: "faster-whisper",
+      model: "base",
+      device: "cpu",
+      compute_type: "int8",
+      language: "de",
+      prompt: "project terms",
+    },
+    audio: { vad_threshold: 0.4 },
+    custom_setting: "preserved",
+  };
+  app.setup.detection = {
+    recommendation: {
+      backend: "whisper-cpp",
+      model: "small",
+      device: "vulkan",
+      compute_type: "auto",
+      downloaded: false,
+    },
+  };
+  const calls = [];
+  let saved;
+  app.loadModels = async () => {};
+  app.loadDiskUsage = async () => {};
+  app.selectModelBackend = () => {};
+  app.api = async (url, options = {}) => {
+    calls.push(url);
+    if (url.includes("/download?")) return { status: "ok" };
+    if (url === "/api/config") {
+      saved = JSON.parse(options.body);
+      return { status: "ok" };
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  };
+
+  await app.applyOptimalSetup();
+
+  assert.deepEqual(calls, [
+    "/api/models/small/download?backend=whisper-cpp",
+    "/api/config",
+  ]);
+  assert.deepEqual(saved.stt, {
+    backend: "whisper-cpp",
+    model: "small",
+    device: "vulkan",
+    compute_type: "auto",
+    language: "de",
+    prompt: "project terms",
+  });
+  assert.equal(saved.first_run, false);
+  assert.deepEqual(saved.audio, { vad_threshold: 0.4 });
+  assert.equal(saved.custom_setting, "preserved");
+  assert.equal(
+    app.setup.success,
+    "Setup saved. Restart LinuxWhispr to activate the recommendation.",
+  );
+});
+
+test("a setup save queued behind an older draft persists the recommendation last", async () => {
+  const app = appWithStorage({ getItem: () => null, setItem() {} });
+  app.config = {
+    first_run: true,
+    stt: { backend: "faster-whisper", model: "base", language: "en" },
+    audio: { gain: 1 },
+  };
+  const writes = [];
+  let releaseFirstWrite;
+  app.api = (url, options = {}) => {
+    if (url.includes("/download?")) return Promise.resolve({ status: "ok" });
+    assert.equal(url, "/api/config");
+    writes.push(JSON.parse(options.body));
+    if (writes.length === 1) {
+      return new Promise((resolve) => {
+        releaseFirstWrite = () => resolve({ status: "ok" });
+      });
+    }
+    return Promise.resolve({ status: "ok" });
+  };
+  app.loadModels = async () => {};
+  app.loadDiskUsage = async () => {};
+  app.selectModelBackend = () => {};
+  const oldSave = app.saveConfig();
+  app.config.audio.gain = 2;
+  app.setup.detection = {
+    recommendation: {
+      backend: "whisper-cpp",
+      model: "base",
+      device: "vulkan",
+      compute_type: "auto",
+      downloaded: true,
+    },
+  };
+  const apply = app.applyOptimalSetup();
+  releaseFirstWrite();
+  await Promise.all([oldSave, apply]);
+
+  assert.equal(writes.length, 2);
+  assert.equal(writes[0].first_run, true);
+  assert.equal(writes[1].first_run, false);
+  assert.equal(writes[1].audio.gain, 2);
+  assert.deepEqual(writes[1].stt, {
+    backend: "whisper-cpp",
+    model: "base",
+    language: "en",
+    device: "vulkan",
+    compute_type: "auto",
+  });
+});
+
+test("a later queued save failure does not undo a successful setup save", async () => {
+  const app = appWithStorage({ getItem: () => null, setItem() {} });
+  app.config = {
+    first_run: true,
+    stt: {
+      backend: "faster-whisper",
+      model: "base",
+      device: "cpu",
+      compute_type: "int8",
+      language: "en",
+    },
+  };
+  app.setup.detection = {
+    recommendation: {
+      backend: "whisper-cpp",
+      model: "small",
+      device: "vulkan",
+      compute_type: "auto",
+      downloaded: true,
+    },
+  };
+  app.loadModels = async () => {};
+  app.loadDiskUsage = async () => {};
+  app.selectModelBackend = () => {};
+  const writes = [];
+  let releaseSetupWrite;
+  let setupWriteStarted;
+  const setupStarted = new Promise((resolve) => {
+    setupWriteStarted = resolve;
+  });
+  app.api = (url, options = {}) => {
+    if (url.includes("/download?")) return Promise.resolve({ status: "ok" });
+    writes.push(JSON.parse(options.body));
+    if (writes.length === 1) {
+      setupWriteStarted();
+      return new Promise((resolve) => {
+        releaseSetupWrite = () => resolve({ status: "ok" });
+      });
+    }
+    return Promise.reject(new Error("later settings save failed"));
+  };
+
+  const apply = app.applyOptimalSetup();
+  await setupStarted;
+  app.config.stt.language = "de";
+  const laterSave = app.saveConfig();
+  releaseSetupWrite();
+  await Promise.all([apply, laterSave]);
+
+  assert.equal(app.errors.setup, "");
+  assert.equal(
+    app.setup.success,
+    "Setup saved. Restart LinuxWhispr to activate the recommendation.",
+  );
+  assert.equal(app.config.first_run, false);
+  assert.deepEqual({ ...app.config.stt }, {
+    backend: "whisper-cpp",
+    model: "small",
+    device: "vulkan",
+    compute_type: "auto",
+    language: "de",
+  });
+  assert.equal(writes.length, 2);
+});
+
+test("a failed setup save preserves a newer language draft in queued snapshots", async () => {
+  const app = appWithStorage({ getItem: () => null, setItem() {} });
+  app.config = {
+    first_run: true,
+    stt: {
+      backend: "faster-whisper",
+      model: "base",
+      device: "cpu",
+      compute_type: "int8",
+      language: "en",
+    },
+    audio: { gain: 1 },
+  };
+  app.setup.detection = {
+    recommendation: {
+      backend: "whisper-cpp",
+      model: "small",
+      device: "vulkan",
+      compute_type: "auto",
+      downloaded: true,
+    },
+  };
+  app.loadModels = async () => {};
+  app.loadDiskUsage = async () => {};
+  const writes = [];
+  let rejectSetupWrite;
+  let setupWriteStarted;
+  const setupStarted = new Promise((resolve) => {
+    setupWriteStarted = resolve;
+  });
+  app.api = (url, options = {}) => {
+    if (url.includes("/download?")) return Promise.resolve({ status: "ok" });
+    writes.push(JSON.parse(options.body));
+    if (writes.length === 1) {
+      setupWriteStarted();
+      return new Promise((_, reject) => {
+        rejectSetupWrite = () => reject(new Error("setup save failed"));
+      });
+    }
+    return Promise.resolve({ status: "ok" });
+  };
+
+  const apply = app.applyOptimalSetup();
+  await setupStarted;
+  app.config.stt.language = "de";
+  const laterSave = app.saveConfig();
+  rejectSetupWrite();
+  await Promise.all([apply, laterSave]);
+
+  assert.equal(app.errors.setup, "Could not apply the recommended setup.");
+  assert.equal(app.config.first_run, true);
+  assert.deepEqual({ ...app.config.stt }, {
+    backend: "faster-whisper",
+    model: "base",
+    device: "cpu",
+    compute_type: "int8",
+    language: "de",
+  });
+  assert.deepEqual(writes[1].stt, { ...app.config.stt });
+  assert.equal(writes[1].first_run, true);
+});
+
+test("apply is ignored while a newer setup detection is pending", async () => {
+  const app = appWithStorage({ getItem: () => null, setItem() {} });
+  app.config = { first_run: true, stt: { backend: "faster-whisper" } };
+  app.setup.detection = {
+    recommendation: {
+      backend: "whisper-cpp",
+      model: "base",
+      device: "vulkan",
+      compute_type: "auto",
+      downloaded: true,
+    },
+  };
+  let resolveDetection;
+  app.api = () =>
+    new Promise((resolve) => {
+      resolveDetection = resolve;
+    });
+
+  const detection = app.detectOptimalSetup();
+  await app.applyOptimalSetup();
+  resolveDetection({
+    status: "ok",
+    hardware: { cpu_threads: 8, gpus: [] },
+    recommendation: {
+      backend: "faster-whisper",
+      model: "small",
+      device: "cpu",
+      compute_type: "int8",
+      downloaded: false,
+    },
+    warnings: [],
+  });
+  await detection;
+
+  assert.equal(app.config.first_run, true);
+  assert.equal(app.config.stt.backend, "faster-whisper");
+  assert.equal(app.setup.detection.recommendation.model, "small");
+});
+
+test("apply verifies a stale downloaded recommendation before saving", async () => {
+  const app = appWithStorage({ getItem: () => null, setItem() {} });
+  app.config = {
+    first_run: true,
+    stt: { backend: "faster-whisper", model: "base" },
+  };
+  app.setup.detection = {
+    recommendation: {
+      backend: "whisper-cpp",
+      model: "small",
+      device: "vulkan",
+      compute_type: "auto",
+      downloaded: true,
+    },
+  };
+  app.loadModels = async () => {};
+  app.loadDiskUsage = async () => {};
+  app.selectModelBackend = () => {};
+  const calls = [];
+  app.api = async (url, options = {}) => {
+    calls.push(url);
+    if (url.includes("/download?")) return { status: "ok" };
+    if (url === "/api/config") {
+      assert.equal(JSON.parse(options.body).stt.model, "small");
+      return { status: "ok" };
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  };
+
+  await app.applyOptimalSetup();
+
+  assert.deepEqual(calls, [
+    "/api/models/small/download?backend=whisper-cpp",
+    "/api/config",
+  ]);
+  assert.equal(app.errors.setup, "");
+});
+
+test("setup memory leaves unavailable values unknown and formats gigabytes", () => {
+  const app = appWithStorage({ getItem: () => null, setItem() {} });
+
+  assert.equal(app.setupMemory(null), "Unknown");
+  assert.equal(app.setupMemory(undefined), "Unknown");
+  assert.equal(app.setupMemory(0), "0.0 GB");
+  assert.equal(app.setupMemory(96335), "101.0 GB");
+  app.uiLanguage = "de";
+  assert.equal(app.setupMemory(96335), "101,0 GB");
 });

@@ -6,11 +6,11 @@ import logging
 import os
 from pathlib import Path
 
-from linux_whispr.constants import APP_NAME
+from linux_whispr.constants import APP_NAME, XDG_CONFIG_HOME
 
 logger = logging.getLogger(__name__)
 
-AUTOSTART_DIR = Path.home() / ".config" / "autostart"
+AUTOSTART_DIR = XDG_CONFIG_HOME / "autostart"
 DESKTOP_ENTRY_NAME = f"{APP_NAME}.desktop"
 
 

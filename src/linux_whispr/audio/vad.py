@@ -70,8 +70,13 @@ class SileroVAD:
         if not model_path.exists():
             self._download_model()
 
+        # Tiny recurrent chunks do not benefit from a per-core worker pool.
+        # Run them on the calling thread to avoid needless worker contention.
+        session_options = ort.SessionOptions()
+        session_options.intra_op_num_threads = 1
         self._session = ort.InferenceSession(
             str(model_path),
+            sess_options=session_options,
             providers=["CPUExecutionProvider"],
         )
 

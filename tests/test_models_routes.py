@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 from linux_whispr.config import AppConfig
 from linux_whispr.stt.model_manager import ModelInfo
-from linux_whispr.web.api import models_routes
+from linux_whispr.web.api import config_routes, models_routes
 
 
 class StubModelManager:
@@ -37,7 +37,7 @@ def configure_routes(
     monkeypatch: pytest.MonkeyPatch, manager: StubModelManager, config: AppConfig
 ) -> None:
     monkeypatch.setattr(models_routes, "_get_model_manager", lambda: manager)
-    monkeypatch.setattr(models_routes.AppConfig, "load", lambda: config)
+    monkeypatch.setattr(config_routes.AppConfig, "load", lambda: config)
 
 
 @pytest.mark.asyncio

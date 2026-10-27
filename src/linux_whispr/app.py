@@ -8,6 +8,7 @@ import threading
 from enum import Enum, auto
 from typing import TYPE_CHECKING
 
+from linux_whispr.ai.base import LLMBackend
 from linux_whispr.audio.capture import AudioCapture
 from linux_whispr.audio.vad import SileroVAD
 from linux_whispr.config import AppConfig
@@ -78,6 +79,7 @@ class LinuxWhispr:
 
         # AI refinement
         self._refinement: object | None = None
+        self._llm_backend: LLMBackend | None = None
 
         # Web dashboard
         self._web_server: object | None = None
@@ -87,6 +89,13 @@ class LinuxWhispr:
         # VAD monitoring
         self._vad_thread: threading.Thread | None = None
         self._vad_active = False
+
+        # STT lifecycle is serialized so launch warmup, transcription, and
+        # shutdown share exactly one model instance.
+        self._stt_lock = threading.RLock()
+        self._warmup_stop = threading.Event()
+        self._warmup_thread: threading.Thread | None = None
+        self._models_preparing = False
 
         # Track last transcription for history
         self._last_raw_text: str = ""
@@ -217,14 +226,16 @@ class LinuxWhispr:
 
         llm_backend = self._create_llm_backend()
         if llm_backend is not None:
+            self._llm_backend = llm_backend
             self._refinement = RefinementPipeline(
                 event_bus=self._event_bus,
                 backend=llm_backend,
                 enabled=True,
+                custom_prompt=self._config.ai.custom_prompt,
             )
             logger.info("AI refinement enabled (backend=%s)", self._config.ai.backend)
 
-    def _create_llm_backend(self) -> object | None:
+    def _create_llm_backend(self) -> LLMBackend | None:
         """Create the LLM backend for AI refinement based on config."""
         import os
 
@@ -258,11 +269,67 @@ class LinuxWhispr:
         elif backend == "ollama":
             from linux_whispr.ai.ollama import OllamaBackend
 
-            return OllamaBackend(model=self._config.ai.model)
+            return OllamaBackend(
+                model=self._config.ai.model,
+                keep_alive_minutes=self._config.ai.keep_alive_minutes,
+            )
         else:
             logger.warning("Unknown AI backend: %s", backend)
 
         return None
+
+    def _start_model_warmup(self) -> None:
+        """Start one cached-only preparation worker after interactive startup."""
+        if not self._config.preload_models or self._warmup_stop.is_set():
+            return
+
+        from linux_whispr.ai.ollama import OllamaBackend
+
+        has_local_stt = isinstance(self._stt, (FasterWhisperBackend, WhisperCppBackend))
+        has_ollama = self._config.ai.enabled and isinstance(self._llm_backend, OllamaBackend)
+        if not has_local_stt and not has_ollama:
+            return
+
+        if self._warmup_thread is not None and self._warmup_thread.is_alive():
+            return
+
+        self._models_preparing = True
+        self._warmup_thread = threading.Thread(
+            target=self._warm_models,
+            daemon=True,
+            name="model-warmup",
+        )
+        self._warmup_thread.start()
+
+    def _warm_models(self) -> None:
+        """Load only already cached local models without delaying dictation."""
+        try:
+            stt = self._stt
+            if isinstance(stt, (FasterWhisperBackend, WhisperCppBackend)):
+                try:
+                    with self._stt_lock:
+                        if not self._warmup_stop.is_set() and not stt.is_loaded:
+                            stt.load(local_files_only=True)
+                except Exception:
+                    logger.info("Cached local STT warmup skipped", exc_info=True)
+
+            if self._warmup_stop.is_set():
+                return
+
+            from linux_whispr.ai.ollama import OllamaBackend
+
+            llm_backend = self._llm_backend
+            if (
+                not self._warmup_stop.is_set()
+                and self._config.ai.enabled
+                and isinstance(llm_backend, OllamaBackend)
+            ):
+                try:
+                    llm_backend.preload(cancel_event=self._warmup_stop)
+                except Exception:
+                    logger.info("Ollama model warmup skipped", exc_info=True)
+        finally:
+            self._models_preparing = False
 
     def _start_web_dashboard(self) -> None:
         """Start the dashboard and wait until it accepts connections."""
@@ -287,7 +354,7 @@ class LinuxWhispr:
             )
 
         set_runtime_status_provider(self._runtime_status)
-        set_dictionary_provider(self._live_dictionary)
+        set_dictionary_provider(self._live_dictionary, self._live_promotion_threshold)
         config = uvicorn.Config(web_app, host="127.0.0.1", port=port, log_level="warning")
         server = uvicorn.Server(config)
         start_error: list[BaseException] = []
@@ -343,13 +410,21 @@ class LinuxWhispr:
 
     def _runtime_status(self) -> dict[str, bool | str]:
         """Expose the active dictation runtime to the dashboard status endpoint."""
-        return {"available": True, "state": self._state.name.lower()}
+        return {
+            "available": True,
+            "state": self._state.name.lower(),
+            "models_preparing": self._models_preparing,
+        }
 
     def _live_dictionary(self) -> Dictionary:
         """Expose the single active dictionary object to dashboard mutations."""
         if self._dictionary is None:
             raise RuntimeError("Dictionary is unavailable before application setup.")
         return self._dictionary
+
+    def _live_promotion_threshold(self) -> int:
+        """Expose the policy currently used for runtime dictionary corrections."""
+        return self._config.adaptive.promotion_threshold
 
     def _stop_web_dashboard(self) -> None:
         """Stop and join the dashboard server started with this application."""
@@ -422,10 +497,13 @@ class LinuxWhispr:
 
         self._start_web_dashboard()
         self._set_state(AppState.IDLE)
+        self._start_model_warmup()
         logger.info("LinuxWhispr started — press %s to dictate", self._config.hotkey.dictation)
 
     def stop(self) -> None:
         """Stop the application and every component it started."""
+        self._warmup_stop.set()
+        self._models_preparing = False
         self._stop_web_dashboard()
 
         if self._hotkey_listener is not None:
@@ -434,8 +512,10 @@ class LinuxWhispr:
         if self._audio is not None and self._audio.is_recording:
             self._audio.stop()
 
-        if self._stt is not None and self._stt.is_loaded:
-            self._stt.unload()
+        if self._stt is not None:
+            with self._stt_lock:
+                if self._stt.is_loaded:
+                    self._stt.unload()
 
         if self._history is not None:
             self._history.close()
@@ -519,6 +599,8 @@ class LinuxWhispr:
 
     def _on_audio_ready(self, wav_bytes: bytes, duration: float) -> None:
         """Handle audio ready event — run full STT + refinement pipeline."""
+        if self._warmup_stop.is_set():
+            return
         if self._state != AppState.PROCESSING:
             self._set_state(AppState.PROCESSING)
 
@@ -536,19 +618,22 @@ class LinuxWhispr:
         assert self._injector is not None
 
         try:
-            # Load STT model if not loaded
-            if not self._stt.is_loaded:
-                logger.info("Loading STT model (first use)...")
-                self._event_bus.emit("stt.started")
-                self._stt.load()
+            with self._stt_lock:
+                if self._warmup_stop.is_set():
+                    return
+                # Load STT model if not loaded
+                if not self._stt.is_loaded:
+                    logger.info("Loading STT model (first use)...")
+                    self._event_bus.emit("stt.started")
+                    self._stt.load()
 
-            # Transcribe
-            self._event_bus.emit("stt.started")
-            result = self._stt.transcribe(
-                wav_bytes,
-                language=self._config.stt.language,
-                initial_prompt=self._get_dictionary_prompt(),
-            )
+                # Transcribe
+                self._event_bus.emit("stt.started")
+                result = self._stt.transcribe(
+                    wav_bytes,
+                    language=self._config.stt.language,
+                    initial_prompt=self._get_dictionary_prompt(),
+                )
         except Exception:
             logger.exception("Transcription failed")
             self._event_bus.emit(
@@ -563,6 +648,9 @@ class LinuxWhispr:
                 "Check the speech model and audio settings.",
                 urgency="critical",
             )
+            return
+
+        if self._warmup_stop.is_set():
             return
 
         if not result.text.strip():
@@ -582,6 +670,27 @@ class LinuxWhispr:
         refined_text: str | None = None
         success = False
 
+        def save_history() -> None:
+            """Persist this dictation while the lifecycle guard is held."""
+            if self._history is None:
+                return
+
+            try:
+                app_context = self._get_active_window_name()
+                self._history.add(
+                    raw_text=raw_text,
+                    refined_text=refined_text,
+                    duration=duration,
+                    app_context=app_context,
+                    language=result.language,
+                )
+            except Exception:
+                logger.exception("Failed to save transcription to history")
+                self._event_bus.emit(
+                    "app.error",
+                    message="Could not save dictation history. Check storage permissions.",
+                )
+
         try:
             if self._snippets is not None:
                 final_text = self._snippets.expand(final_text)
@@ -595,10 +704,18 @@ class LinuxWhispr:
                 from linux_whispr.ai.refinement import RefinementPipeline
 
                 assert isinstance(self._refinement, RefinementPipeline)
+                configured_stt_language = self._config.stt.language
+                refinement_language = (
+                    configured_stt_language
+                    if configured_stt_language
+                    and configured_stt_language.casefold() != "auto"
+                    else result.language
+                )
                 refined = self._refinement.refine(
                     raw_text=final_text,
                     app_name=app_name,
                     dictionary_context=dict_context,
+                    language=refinement_language,
                 )
                 if refined != final_text:
                     final_text = refined
@@ -615,43 +732,46 @@ class LinuxWhispr:
 
             # Store the actual injected text while preserving the transcription as raw text.
             refined_text = final_text if final_text != raw_text else None
-
-            # Inject text (FR-6)
-            success = self._injector.inject(final_text)
-            if success:
-                logger.info("Text injected (%d chars)", len(final_text))
-            else:
-                logger.error("Text injection failed")
+        except Exception:
+            with self._stt_lock:
+                if self._warmup_stop.is_set():
+                    return
+                logger.exception("Post-transcription pipeline failed")
                 self._event_bus.emit(
                     "app.error",
-                    message=(
-                        "Text injection failed. Check input permissions and the active application."
-                    ),
+                    message="Post-processing failed. Dictation was not injected.",
                 )
-        except Exception:
-            logger.exception("Post-transcription pipeline failed")
-            self._event_bus.emit(
-                "app.error",
-                message="Post-processing failed. Dictation was not injected.",
-            )
-        finally:
-            # Save to history (FR-12) — always persist, even if injection failed
-            if self._history is not None:
+                save_history()
+        else:
+            # The lifecycle guard admits the final effects as one unit. It is
+            # deliberately acquired only after all refinement work, which may
+            # perform AI HTTP, has completed.
+            with self._stt_lock:
+                if self._warmup_stop.is_set():
+                    return
+
                 try:
-                    app_context = self._get_active_window_name()
-                    self._history.add(
-                        raw_text=raw_text,
-                        refined_text=refined_text,
-                        duration=duration,
-                        app_context=app_context,
-                        language=result.language,
-                    )
+                    # Inject text (FR-6)
+                    success = self._injector.inject(final_text)
+                    if success:
+                        logger.info("Text injected (%d chars)", len(final_text))
+                    else:
+                        logger.error("Text injection failed")
+                        self._event_bus.emit(
+                            "app.error",
+                            message=(
+                                "Text injection failed. Check input permissions and the active application."
+                            ),
+                        )
                 except Exception:
-                    logger.exception("Failed to save transcription to history")
+                    logger.exception("Post-transcription pipeline failed")
                     self._event_bus.emit(
                         "app.error",
-                        message="Could not save dictation history. Check storage permissions.",
+                        message="Post-processing failed. Dictation was not injected.",
                     )
+                finally:
+                    # Save to history (FR-12) — always persist, even if injection failed.
+                    save_history()
 
         # Start adaptive learning watch (FR-14)
         if self._adaptive is not None and success:

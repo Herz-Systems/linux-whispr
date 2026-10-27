@@ -15,6 +15,10 @@ class RefinementResult:
     tokens_used: int = 0
 
 
+class LLMUnavailableError(RuntimeError):
+    """Raised when a backend cannot accept a generation request."""
+
+
 class LLMBackend(abc.ABC):
     """Abstract base class for LLM backends used in text refinement."""
 
@@ -22,12 +26,18 @@ class LLMBackend(abc.ABC):
     def generate(self, system_prompt: str, user_prompt: str) -> RefinementResult:
         """Generate text from a system + user prompt pair.
 
+        Implementations must check their own current preconditions before client
+        work and raise LLMUnavailableError for expected unavailability.
+
         Args:
             system_prompt: The system/instruction prompt.
             user_prompt: The user message (raw transcription or command).
 
         Returns:
             RefinementResult with the generated text.
+
+        Raises:
+            LLMUnavailableError: The backend cannot currently accept a request.
         """
         ...
 

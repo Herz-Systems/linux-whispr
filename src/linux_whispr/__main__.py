@@ -101,9 +101,10 @@ def main() -> None:
     from pathlib import Path
 
     from linux_whispr.config import AppConfig
+    from linux_whispr.web.server import set_config_path
 
-    # Load config
     config_path = Path(args.config) if args.config else None
+    set_config_path(config_path)
     config = AppConfig.load(config_path)
 
     # The setup wizard is explicit so a normal first launch always starts the

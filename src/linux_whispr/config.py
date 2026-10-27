@@ -19,8 +19,10 @@ from linux_whispr.constants import (
     CORRECTION_WATCH_WINDOW,
     DEFAULT_COMMAND_HOTKEY,
     DEFAULT_DICTATION_HOTKEY,
+    DEFAULT_OLLAMA_KEEP_ALIVE_MINUTES,
     DEFAULT_WHISPER_MODEL,
     HISTORY_RETENTION_DAYS,
+    OLLAMA_KEEP_ALIVE_OPTIONS,
     VAD_SILENCE_DURATION,
     VAD_THRESHOLD,
     WEB_DEFAULT_PORT,
@@ -68,7 +70,7 @@ class AIConfig:
     backend: str = "none"
     model: str = ""
     custom_prompt: str = ""
-
+    keep_alive_minutes: int = DEFAULT_OLLAMA_KEEP_ALIVE_MINUTES
 
 @dataclass
 class HotkeyConfig:
@@ -125,6 +127,7 @@ class AppConfig:
     history: HistoryConfig = field(default_factory=HistoryConfig)
     adaptive: AdaptiveConfig = field(default_factory=AdaptiveConfig)
     web: WebConfig = field(default_factory=WebConfig)
+    preload_models: bool = True
     autostart: bool = False
     first_run: bool = True
 
@@ -173,7 +176,15 @@ def _merge_config(config: AppConfig, data: dict[str, Any]) -> AppConfig:
 
     if "ai" in data:
         for key, val in data["ai"].items():
-            if hasattr(config.ai, key):
+            if key == "keep_alive_minutes":
+                if _is_valid_ollama_keep_alive_minutes(val):
+                    config.ai.keep_alive_minutes = val
+                else:
+                    logger.warning(
+                        "Ignoring invalid ai.keep_alive_minutes in configuration: %r",
+                        val,
+                    )
+            elif hasattr(config.ai, key):
                 setattr(config.ai, key, val)
 
     if "hotkey" in data:
@@ -201,12 +212,33 @@ def _merge_config(config: AppConfig, data: dict[str, Any]) -> AppConfig:
             if hasattr(config.web, key):
                 setattr(config.web, key, val)
 
+    if "preload_models" in data:
+        if isinstance(data["preload_models"], bool):
+            config.preload_models = data["preload_models"]
+        else:
+            logger.warning(
+                "Ignoring invalid preload_models in configuration: %r",
+                data["preload_models"],
+            )
+
     if "autostart" in data:
         config.autostart = data["autostart"]
     if "first_run" in data:
         config.first_run = data["first_run"]
+    else:
+        # Existing configurations predate the first-run dashboard flow.
+        config.first_run = False
 
     return config
+
+
+def _is_valid_ollama_keep_alive_minutes(value: object) -> bool:
+    """Return whether a configured Ollama residency duration is supported."""
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and value in OLLAMA_KEEP_ALIVE_OPTIONS
+    )
 
 
 def _config_to_dict(config: AppConfig) -> dict[str, Any]:

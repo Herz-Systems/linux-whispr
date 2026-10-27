@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from linux_whispr.ai.base import LLMBackend, RefinementResult
+from linux_whispr.ai.base import LLMBackend, LLMUnavailableError, RefinementResult
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,9 @@ class AnthropicLLMBackend(LLMBackend):
         logger.info("Anthropic LLM client initialized (model=%s)", self._model)
 
     def generate(self, system_prompt: str, user_prompt: str) -> RefinementResult:
+        if not self.is_available():
+            raise LLMUnavailableError("Anthropic API key is not configured.")
+
         if self._client is None:
             self.load()
 

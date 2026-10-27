@@ -5,11 +5,62 @@ from __future__ import annotations
 import io
 import logging
 import wave
+from pathlib import Path
 
 from linux_whispr.constants import DEFAULT_WHISPER_MODEL, MODELS_DIR
 from linux_whispr.stt.base import STTBackend, TranscriptionResult
 
 logger = logging.getLogger(__name__)
+
+
+_REQUIRED_MODEL_FILES = ("config.json", "model.bin", "tokenizer.json")
+
+
+def _has_complete_local_model(path: Path) -> bool:
+    """Return whether a directory can load without native fallback downloads."""
+    return (
+        path.is_dir()
+        and all(
+            (artifact := path / name).is_file() and artifact.stat().st_size > 0
+            for name in _REQUIRED_MODEL_FILES
+        )
+        and any(
+            artifact.is_file() and artifact.stat().st_size > 0
+            for artifact in path.glob("vocabulary.*")
+        )
+    )
+
+
+def _resolve_cached_model_path(model_name: str, cached_path: Path) -> Path:
+    """Resolve a Hugging Face cache root to its locally referenced snapshot."""
+    if _has_complete_local_model(cached_path):
+        return cached_path
+
+    if not (cached_path / "snapshots").is_dir():
+        raise RuntimeError(
+            f"faster-whisper model '{model_name}' is not completely cached locally"
+        )
+
+    from faster_whisper.utils import download_model
+
+    try:
+        resolved_path = Path(
+            download_model(
+                model_name,
+                cache_dir=str(MODELS_DIR),
+                local_files_only=True,
+            )
+        )
+    except Exception as error:
+        raise RuntimeError(
+            f"faster-whisper model '{model_name}' is not completely cached locally"
+        ) from error
+
+    if not _has_complete_local_model(resolved_path):
+        raise RuntimeError(
+            f"faster-whisper model '{model_name}' is not completely cached locally"
+        )
+    return resolved_path
 
 
 class FasterWhisperBackend(STTBackend):
@@ -26,9 +77,8 @@ class FasterWhisperBackend(STTBackend):
         self._compute_type = compute_type
         self._model: object | None = None
 
-    def load(self) -> None:
-        """Load the Whisper model."""
-        from faster_whisper import WhisperModel
+    def load(self, *, local_files_only: bool = False) -> None:
+        """Load the Whisper model, optionally from an existing local cache only."""
 
         # Resolve device
         device = self._device
@@ -40,9 +90,25 @@ class FasterWhisperBackend(STTBackend):
         if compute_type == "auto":
             compute_type = "float16" if device == "cuda" else "int8"
 
-        model_dir = MODELS_DIR / self._model_name
-        # If model isn't cached locally, faster-whisper will download it
-        download_root = str(MODELS_DIR)
+        model_source: str = self._model_name
+        kwargs: dict[str, object] = {"download_root": str(MODELS_DIR)}
+        if local_files_only:
+            from linux_whispr.stt.model_manager import ModelManager
+
+            cached_path = ModelManager().get_model_path(
+                self._model_name, backend="faster-whisper"
+            )
+            if cached_path is None or not cached_path.is_dir():
+                raise RuntimeError(
+                    f"faster-whisper model '{self._model_name}' is not cached locally"
+                )
+            # A Hugging Face cache root is not itself a CTranslate2 model
+            # directory. Resolve its active cached revision before giving the
+            # path to faster-whisper, which otherwise skips its resolver.
+            model_source = str(_resolve_cached_model_path(self._model_name, cached_path))
+            kwargs["local_files_only"] = True
+
+        from faster_whisper import WhisperModel
 
         logger.info(
             "Loading faster-whisper model '%s' (device=%s, compute_type=%s)",
@@ -52,10 +118,10 @@ class FasterWhisperBackend(STTBackend):
         )
 
         self._model = WhisperModel(
-            self._model_name,
+            model_source,
             device=device,
             compute_type=compute_type,
-            download_root=download_root,
+            **kwargs,
         )
         logger.info("faster-whisper model loaded")
 

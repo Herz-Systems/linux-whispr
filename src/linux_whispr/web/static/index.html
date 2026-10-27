@@ -11,9 +11,10 @@
     <meta name="theme-color" content="#2461b5" />
     <title>LinuxWhispr</title>
     <link rel="icon" href="/static/brand.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/static/app.css" />
-    <script defer src="/static/i18n.js"></script>
-    <script defer src="/static/app.js"></script>
+    <link rel="stylesheet" href="/static/app.css?v=20261027-history-readable" />
+    <!-- Increment this shared revision whenever either frontend script changes. -->
+    <script defer src="/static/i18n.js?v=20261027-history-readable"></script>
+    <script defer src="/static/app.js?v=20261027-history-readable"></script>
     <script defer src="/static/vendor/alpine.min.js"></script>
   </head>
   <body>
@@ -58,40 +59,48 @@
 
         <nav class="nav-list" :aria-label="t('Sections')">
           <template x-for="item in navItems" :key="item.id">
-            <button
+            <a
               class="nav-item"
               :class="{ 'is-active': currentPage === item.id }"
-              type="button"
-              @click="navigate(item.id)"
+              :href="item.path"
+              @click="handleNavigation($event, item.id)"
               :aria-current="currentPage === item.id ? 'page' : null"
             >
               <span :class="'icon icon-' + item.icon" aria-hidden="true"></span>
               <span class="nav-label" x-text="t(item.label)"></span>
-            </button>
+            </a>
           </template>
         </nav>
 
-        <div class="sidebar-footer">
-          <button
-            class="button button-quiet theme-button"
-            type="button"
-            @click="toggleTheme()"
+        <div class="sidebar-bottom">
+          <div
+            class="sidebar-status"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
           >
             <span
-              class="icon"
-              :class="darkMode ? 'icon-sun' : 'icon-moon'"
-              aria-hidden="true"
+              class="badge"
+              :class="dictationStatusClass()"
+              x-text="t(dictationStatusLabel())"
             ></span>
-            <span x-text="darkMode ? t('Use light theme') : t('Use dark theme')"
-              >Use dark theme</span
+          </div>
+          <div class="sidebar-footer">
+            <button
+              class="button button-quiet theme-button"
+              type="button"
+              @click="toggleTheme()"
             >
-          </button>
-          <p
-            class="sidebar-note"
-            x-text="t('Dictation status is shown in this dashboard.')"
-          >
-            Dictation status is shown in this dashboard.
-          </p>
+              <span
+                class="icon"
+                :class="darkMode ? 'icon-sun' : 'icon-moon'"
+                aria-hidden="true"
+              ></span>
+              <span x-text="darkMode ? t('Use light theme') : t('Use dark theme')"
+                >Use dark theme</span
+              >
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -133,12 +142,7 @@
                 </template>
               </select>
             </label>
-            <span
-              class="badge"
-              :class="dictationStatusClass()"
-              x-show="!loading.status"
-              x-text="t(dictationStatusLabel())"
-            ></span>
+
             <button
               class="icon-button"
               type="button"
@@ -155,7 +159,11 @@
         </header>
 
         <main id="main-content" class="page-content" tabindex="-1">
-          <section x-show="currentPage === 'dashboard'" x-cloak>
+          <section
+            x-show="currentPage === 'dashboard'"
+            x-cloak
+            :aria-busy="(loading.status && !errors.status) || (loading.config && !errors.config) || (loading.stats && !errors.stats) || (loading.recentHistory && !errors.recentHistory) || (loading.setup && !errors.setup)"
+          >
             <header class="page-header">
               <div>
                 <h1
@@ -200,11 +208,7 @@
                     >
                       Use the app shortcut to dictate into any text field.
                     </p>
-                    <div class="inline">
-                      <kbd
-                        class="shortcut-display"
-                        x-text="config.hotkey?.dictation || t('Shortcut not configured')"
-                      ></kbd>
+                    <div class="welcome-actions">
                       <button
                         class="button button-secondary"
                         type="button"
@@ -217,6 +221,13 @@
                         ></span>
                       </button>
                     </div>
+                  </div>
+                  <div class="welcome-shortcut">
+                    <kbd
+                      class="shortcut-display"
+                      :aria-label="t('Dictation hotkey')"
+                      x-text="config.hotkey?.dictation || t('Shortcut not configured')"
+                    ></kbd>
                   </div>
                 </section>
 
@@ -236,29 +247,29 @@
                     </div>
                     <span class="icon icon-keyboard" aria-hidden="true"></span>
                   </div>
-                  <div
+                  <dl
                     class="summary-list"
                     x-show="!loading.config && !errors.config"
                   >
                     <div class="summary-row">
-                      <span x-text="t('Model')">Model</span
-                      ><strong
+                      <dt x-text="t('Model')">Model</dt>
+                      <dd
                         x-text="config.stt?.model || t('Not set')"
-                      ></strong>
+                      ></dd>
                     </div>
                     <div class="summary-row">
-                      <span x-text="t('Language')">Language</span
-                      ><strong
+                      <dt x-text="t('Language')">Language</dt>
+                      <dd
                         x-text="({ auto: t('Auto-detect'), pt: t('Portuguese'), en: t('English'), es: t('Spanish'), fr: t('French'), de: t('German'), it: t('Italian'), ja: t('Japanese'), zh: t('Chinese') })[config.stt?.language] || config.stt?.language || t('Not set')"
-                      ></strong>
+                      ></dd>
                     </div>
                     <div class="summary-row">
-                      <span x-text="t('Refinement')">Refinement</span
-                      ><strong
+                      <dt x-text="t('Refinement')">Refinement</dt>
+                      <dd
                         x-text="config.ai?.enabled ? t('Enabled') : t('Disabled')"
-                      ></strong>
+                      ></dd>
                     </div>
-                  </div>
+                  </dl>
                   <div class="loading-state" x-show="loading.config">
                     <span class="skeleton"></span><span class="skeleton"></span
                     ><span class="skeleton"></span>
@@ -279,6 +290,86 @@
                   </div>
                 </aside>
               </div>
+              <section
+                class="optimal-setup-card panel"
+                x-show="config.first_run === true"
+                x-cloak
+                aria-labelledby="first-run-setup-title"
+              >
+                <div class="panel-header">
+                  <div>
+                    <h2
+                      id="first-run-setup-title"
+                      class="section-title"
+                      x-text="t('Find an optimal dictation setup')"
+                    >
+                      Find an optimal dictation setup
+                    </h2>
+                    <p
+                      class="section-description"
+                      x-text="t('Review a local hardware recommendation before changing settings.')"
+                    >
+                      Review a local hardware recommendation before changing settings.
+                    </p>
+                  </div>
+                </div>
+                <div class="panel-body">
+                  <div class="loading-state" x-show="loading.setup">
+                    <span class="skeleton"></span><span class="skeleton"></span>
+                  </div>
+                  <div class="error-banner" x-show="errors.setup" role="alert">
+                    <span class="icon icon-alert-circle" aria-hidden="true"></span>
+                    <span x-text="t(errors.setup)"></span>
+                    <button class="button button-secondary" type="button" @click="detectOptimalSetup()" :disabled="loading.setup || busy.setup">
+                      <span x-text="t('Try detection again')">Try detection again</span>
+                    </button>
+                  </div>
+                  <template x-if="setup.detection">
+                    <div class="optimal-setup-content">
+                      <dl class="optimal-setup-summary">
+                        <div><dt x-text="t('CPU threads')">CPU threads</dt><dd x-text="formatNumber(setup.detection.hardware?.cpu_threads || 0)"></dd></div>
+                        <div><dt x-text="t('Total RAM')">Total RAM</dt><dd x-text="setupMemory(setup.detection.hardware?.ram_total_mb)"></dd></div>
+                        <div><dt x-text="t('Available RAM')">Available RAM</dt><dd x-text="setupMemory(setup.detection.hardware?.ram_available_mb)"></dd></div>
+                      </dl>
+                      <template x-for="(gpu, index) in setupGpuList()" :key="index">
+                        <div class="optimal-setup-gpu">
+                          <strong x-text="gpu.name"></strong>
+                          <span x-text="`${gpu.vendor} · ${gpu.kind} · ${gpu.acceleration || t('No acceleration')}`"></span>
+                          <span x-text="`${t('VRAM')}: ${setupMemory(gpu.vram_total_mb)} · ${t('Available VRAM')}: ${setupMemory(gpu.vram_available_mb)}`"></span>
+                        </div>
+                      </template>
+                      <div class="optimal-setup-recommendation">
+                        <h3 x-text="t('Recommended setup')">Recommended setup</h3>
+                        <p x-text="`${setup.detection.recommendation.backend} · ${setup.detection.recommendation.model} · ${setup.detection.recommendation.device} · ${setup.detection.recommendation.compute_type}`"></p>
+                        <p x-text="t('Approximate download: {size}', { size: setupMemory(setup.detection.recommendation.download_size_mb) })"></p>
+                        <p x-text="setupIsDownloaded() ? t('Model is already downloaded.') : t('Model will be downloaded before settings change.')"></p>
+                        <p x-text="setupReasonLabel(setup.detection.recommendation.reason)"></p>
+                      </div>
+                      <p class="field-help" x-text="t('This is a conservative hardware estimate, not a performance benchmark.')"></p>
+                      <ul class="optimal-setup-warnings" x-show="setup.detection.warnings?.length">
+                        <template x-for="warning in setup.detection.warnings" :key="warning">
+                          <li x-text="setupWarningLabel(warning)"></li>
+                        </template>
+                      </ul>
+                      <p class="settings-notice" x-show="setupNeedsAmdExtra()">
+                        <span class="icon icon-alert-circle" aria-hidden="true"></span>
+                        <span><span x-text="t('AMD/Vulkan support may require the AMD extra:')"></span> <code>uv run --extra amd linux-whispr</code></span>
+                      </p>
+                    </div>
+                  </template>
+                  <div class="form-actions optimal-setup-actions">
+                    <button class="button button-secondary" type="button" @click="detectOptimalSetup()" :disabled="loading.setup || busy.setup">
+                      <span x-text="t('Detect optimal setup')">Detect optimal setup</span>
+                    </button>
+                    <button class="button button-primary" type="button" @click="applyOptimalSetup()" :disabled="!setup.detection || loading.setup || busy.setup">
+                      <span x-text="setupIsDownloaded() ? t('Apply setup') : t('Download and apply')">Download and apply</span>
+                    </button>
+                    <button class="button button-quiet" type="button" @click="dismissOptimalSetup()" :disabled="busy.setup">
+                      <span x-text="t('Later')">Later</span>
+                    </button>
+                  </div>
+                </div>
+              </section>
 
               <section
                 class="dashboard-stats"
@@ -361,7 +452,7 @@
                 </template>
               </section>
 
-              <section class="panel" aria-labelledby="recent-title">
+              <section class="recent-panel panel" aria-labelledby="recent-title">
                 <div class="panel-header">
                   <div>
                     <h2
@@ -466,7 +557,11 @@
             </div>
           </section>
 
-          <section x-show="currentPage === 'config'" x-cloak>
+          <section
+            x-show="currentPage === 'config'"
+            x-cloak
+            :aria-busy="(loading.config && !errors.config) || (loading.setup && !errors.setup) || (loading.ollama && !errors.ollama)"
+          >
             <header class="page-header">
               <div>
                 <h1
@@ -484,7 +579,12 @@
                   Adjust recognition, shortcuts, and text injection.
                 </p>
               </div>
-              <div class="page-actions" x-show="saveState">
+              <div
+                class="page-actions"
+                x-show="saveState"
+                :role="saveState === 'error' ? 'alert' : 'status'"
+                aria-live="polite"
+              >
                 <span
                   class="badge badge-muted"
                   x-show="saveState === 'saving'"
@@ -539,6 +639,95 @@
 
               <details
                 class="settings-group"
+                :open="configOpen.startup"
+                @toggle="configOpen.startup = $event.target.open"
+              >
+                <summary class="settings-summary">
+                  <span
+                    class="settings-icon icon icon-settings"
+                    aria-hidden="true"
+                  ></span>
+                  <span x-text="t('Startup behavior')">Startup behavior</span>
+                </summary>
+                <div class="settings-fields form-grid">
+                  <div class="toggle-row">
+                    <div>
+                      <label
+                        class="field-label"
+                        for="autostart"
+                        x-text="t('Launch LinuxWhispr on startup')"
+                      >
+                        Launch LinuxWhispr on startup
+                      </label>
+                    </div>
+                    <input
+                      id="autostart"
+                      class="switch"
+                      type="checkbox"
+                      role="switch"
+                      :checked="config.autostart"
+                      @change="config.autostart = $event.target.checked; saveConfig()"
+                    />
+                  </div>
+                  <div class="toggle-row">
+                    <div>
+                      <label
+                        class="field-label"
+                        for="dashboard-auto-open"
+                        x-text="t('Open dashboard on launch')"
+                      >
+                        Open dashboard on launch
+                      </label>
+                      <p
+                        id="dashboard-auto-open-help"
+                        class="field-help"
+                        x-text="t('Dashboard stays available.')"
+                      >
+                        Dashboard stays available.
+                      </p>
+                    </div>
+                    <input
+                      id="dashboard-auto-open"
+                      class="switch"
+                      type="checkbox"
+                      role="switch"
+                      :checked="config.web.auto_open"
+                      aria-describedby="dashboard-auto-open-help"
+                      @change="config.web.auto_open = $event.target.checked; saveConfig()"
+                    />
+                  </div>
+                  <div class="toggle-row">
+                    <div>
+                      <label
+                        class="field-label"
+                        for="preload-models"
+                        x-text="t('Preload local models on launch')"
+                      >
+                        Preload local models on launch
+                      </label>
+                      <p
+                        id="preload-models-help"
+                        class="field-help"
+                        x-text="t('Applies on next launch and uses only models already cached on this computer.')"
+                      >
+                        Applies on next launch and uses only models already cached on this computer.
+                      </p>
+                    </div>
+                    <input
+                      id="preload-models"
+                      class="switch"
+                      type="checkbox"
+                      role="switch"
+                      :checked="config.preload_models"
+                      aria-describedby="preload-models-help"
+                      @change="config.preload_models = $event.target.checked; saveConfig()"
+                    />
+                  </div>
+                </div>
+              </details>
+
+              <details
+                class="settings-group"
                 open
                 @toggle="configOpen.stt = $event.target.open"
               >
@@ -551,6 +740,87 @@
                     >Transcription (STT)</span
                   >
                 </summary>
+                <section
+                  class="optimal-setup-card"
+                  aria-labelledby="settings-setup-title"
+                >
+                  <div class="optimal-setup-panel">
+                    <details
+                      class="optimal-setup-details"
+                      :open="setup.open"
+                      @toggle="setup.open = $event.target.open"
+                    >
+                      <summary
+                        :aria-disabled="!setup.detection"
+                        :tabindex="setup.detection ? null : -1"
+                        @click="if (!setup.detection) $event.preventDefault()"
+                        @keydown="if (!setup.detection) $event.preventDefault()"
+                      >
+                        <h3 id="settings-setup-title" class="section-title" x-text="t('Detect optimal setup')">Detect optimal setup</h3>
+                        <p class="section-description" x-text="t('Review detected hardware and apply only the recommended STT settings.')">Review detected hardware and apply only the recommended STT settings.</p>
+                      </summary>
+                      <div class="optimal-setup-details-content">
+                        <div class="success-banner" x-show="setup.success" role="status" x-text="t(setup.success)"></div>
+                        <template x-if="setup.detection">
+                          <div class="optimal-setup-content">
+                            <dl class="optimal-setup-summary">
+                              <div><dt x-text="t('CPU threads')">CPU threads</dt><dd x-text="formatNumber(setup.detection.hardware?.cpu_threads || 0)"></dd></div>
+                              <div><dt x-text="t('Total RAM')">Total RAM</dt><dd x-text="setupMemory(setup.detection.hardware?.ram_total_mb)"></dd></div>
+                              <div><dt x-text="t('Available RAM')">Available RAM</dt><dd x-text="setupMemory(setup.detection.hardware?.ram_available_mb)"></dd></div>
+                            </dl>
+                            <template x-for="(gpu, index) in setupGpuList()" :key="index">
+                              <div class="optimal-setup-gpu">
+                                <strong x-text="gpu.name"></strong>
+                                <span x-text="`${gpu.vendor} · ${gpu.kind} · ${gpu.acceleration || t('No acceleration')}`"></span>
+                                <span x-text="`${t('VRAM')}: ${setupMemory(gpu.vram_total_mb)} · ${t('Available VRAM')}: ${setupMemory(gpu.vram_available_mb)}`"></span>
+                              </div>
+                            </template>
+                            <div class="optimal-setup-recommendation">
+                              <h3 x-text="t('Recommended setup')">Recommended setup</h3>
+                              <p x-text="`${setup.detection.recommendation.backend} · ${setup.detection.recommendation.model} · ${setup.detection.recommendation.device} · ${setup.detection.recommendation.compute_type}`"></p>
+                              <p x-text="t('Approximate download: {size}', { size: setupMemory(setup.detection.recommendation.download_size_mb) })"></p>
+                              <p x-text="setupIsDownloaded() ? t('Model is already downloaded.') : t('Model will be downloaded before settings change.')"></p>
+                              <p x-text="setupReasonLabel(setup.detection.recommendation.reason)"></p>
+                            </div>
+                            <p class="field-help" x-text="t('This is a conservative hardware estimate, not a performance benchmark.')"></p>
+                            <ul class="optimal-setup-warnings" x-show="setup.detection.warnings?.length">
+                              <template x-for="warning in setup.detection.warnings" :key="warning">
+                                <li x-text="setupWarningLabel(warning)"></li>
+                              </template>
+                            </ul>
+                            <p class="settings-notice" x-show="setupNeedsAmdExtra()">
+                              <span class="icon icon-alert-circle" aria-hidden="true"></span>
+                              <span><span x-text="t('AMD/Vulkan support may require the AMD extra:')"></span> <code>uv run --extra amd linux-whispr</code></span>
+                            </p>
+                            <div class="form-actions optimal-setup-actions">
+                              <button class="button button-primary" type="button" @click="applyOptimalSetup()" :disabled="!setup.detection || loading.setup || busy.setup">
+                                <span x-text="busy.setup ? t('Applying…') : (setupIsDownloaded() ? t('Apply setup') : t('Download and apply'))">Download and apply</span>
+                              </button>
+                              <button class="button button-quiet" type="button" @click="dismissOptimalSetup()" x-show="config.first_run === true" :disabled="busy.setup">
+                                <span x-text="t('Later')">Later</span>
+                              </button>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                    </details>
+                    <div
+                      class="optimal-setup-feedback"
+                      x-show="loading.setup || errors.setup"
+                    >
+                      <div class="loading-state" x-show="loading.setup">
+                        <span class="skeleton"></span><span class="skeleton"></span>
+                      </div>
+                      <div class="error-banner" x-show="errors.setup" role="alert">
+                        <span class="icon icon-alert-circle" aria-hidden="true"></span>
+                        <span x-text="t(errors.setup)"></span>
+                      </div>
+                    </div>
+                  </div>
+                  <button class="button button-secondary" type="button" @click="detectOptimalSetup()" :disabled="loading.setup || busy.setup">
+                    <span x-text="loading.setup ? t('Detecting…') : t('Detect optimal setup')">Detect optimal setup</span>
+                  </button>
+                </section>
                 <div class="settings-fields form-grid">
                   <div class="field">
                     <label
@@ -717,14 +987,20 @@
                       type="range"
                       min="0.5"
                       max="10"
-                      step="0.5"
-                      x-model="config.audio.silence_duration"
+                      step="0.1"
+                      x-model.number="config.audio.silence_duration"
                       @change="saveConfig()"
                     />
                     <p
                       class="field-help"
                       x-text="formatDuration(config.audio.silence_duration)"
                     ></p>
+                    <p
+                      class="field-help"
+                      x-text="t('Shorter pauses finish dictation sooner.')"
+                    >
+                      Shorter pauses finish dictation sooner.
+                    </p>
                   </div>
                   <div class="field">
                     <label
@@ -1123,17 +1399,108 @@
                       </div>
                     </section>
                   </div>
-                  <div class="field">
+                  <div class="field" x-show="isOllamaBackend()">
+                    <label
+                      class="field-label"
+                      for="ollama-keep-alive"
+                      x-text="t('Keep selected Ollama model ready')"
+                    >
+                      Keep selected Ollama model ready
+                    </label>
+                    <select
+                      id="ollama-keep-alive"
+                      class="select"
+                      x-model.number="config.ai.keep_alive_minutes"
+                      @change="saveConfig()"
+                    >
+                      <option value="5" x-text="t('{count} minutes', { count: 5 })">5 minutes</option>
+                      <option value="15" x-text="t('{count} minutes', { count: 15 })">15 minutes</option>
+                      <option value="30" x-text="t('{count} minutes', { count: 30 })">30 minutes</option>
+                    </select>
+                    <p
+                      class="field-help"
+                      x-text="t('Keeps the selected local Ollama model loaded after use.')"
+                    >
+                      Keeps the selected local Ollama model loaded after use.
+                    </p>
+                  </div>
+                  <div class="field full-width">
                     <label
                       class="field-label"
                       for="ai-prompt"
                       x-text="t('Custom prompt')"
                       >Custom prompt</label
                     >
+                    <div
+                      id="ai-prompt-template"
+                      class="prompt-template-actions"
+                      role="group"
+                      :aria-label="t('Prompt template')"
+                      aria-describedby="ai-prompt-template-help"
+                    >
+                      <button
+                        type="button"
+                        class="button"
+                        :class="promptTemplate === 'formal' ? 'button-primary' : 'button-secondary'"
+                        :aria-pressed="promptTemplate === 'formal'"
+                        @click="applyPromptTemplate('formal')"
+                        x-text="t('Formal')"
+                      >
+                        Formal
+                      </button>
+                      <button
+                        type="button"
+                        class="button"
+                        :class="promptTemplate === 'casual' ? 'button-primary' : 'button-secondary'"
+                        :aria-pressed="promptTemplate === 'casual'"
+                        @click="applyPromptTemplate('casual')"
+                        x-text="t('Casual')"
+                      >
+                        Casual
+                      </button>
+                      <button
+                        type="button"
+                        class="button"
+                        :class="promptTemplate === 'concise' ? 'button-primary' : 'button-secondary'"
+                        :aria-pressed="promptTemplate === 'concise'"
+                        @click="applyPromptTemplate('concise')"
+                        x-text="t('Concise')"
+                      >
+                        Concise
+                      </button>
+                      <button
+                        type="button"
+                        class="button"
+                        :class="promptTemplate === 'bullets' ? 'button-primary' : 'button-secondary'"
+                        :aria-pressed="promptTemplate === 'bullets'"
+                        @click="applyPromptTemplate('bullets')"
+                        x-text="t('Bullet points')"
+                      >
+                        Bullet points
+                      </button>
+                      <button
+                        type="button"
+                        class="button"
+                        :class="promptTemplate === 'default' ? 'button-primary' : 'button-secondary'"
+                        :aria-pressed="promptTemplate === 'default'"
+                        @click="applyPromptTemplate('default')"
+                        x-text="t('Default')"
+                      >
+                        Default
+                      </button>
+                    </div>
+                    <p
+                      id="ai-prompt-template-help"
+                      class="field-help"
+                      x-text="t('Choose a template, then edit the prompt below.')"
+                    >
+                      Choose a template, then edit the prompt below.
+                    </p>
                     <textarea
                       id="ai-prompt"
                       class="textarea"
                       x-model="config.ai.custom_prompt"
+                      @input="syncPromptTemplate($event.target.value)"
                       @change="saveConfig()"
                       rows="3"
                       :placeholder="t('Leave empty to use the default')"
@@ -1359,7 +1726,11 @@
             </form>
           </section>
 
-          <section x-show="currentPage === 'history'" x-cloak>
+          <section
+            x-show="currentPage === 'history'"
+            x-cloak
+            :aria-busy="loading.history && !errors.history"
+          >
             <header class="page-header">
               <div>
                 <h1
@@ -1416,7 +1787,10 @@
                 <span x-text="t('Refresh')">Refresh</span>
               </button>
             </div>
-            <section class="data-panel" :aria-label="t('History table')">
+            <section
+              class="data-panel"
+              :aria-label="t('Transcription history')"
+            >
               <div class="loading-state" x-show="loading.history">
                 <span class="skeleton"></span><span class="skeleton"></span
                 ><span class="skeleton"></span>
@@ -1432,46 +1806,30 @@
                   <span x-text="t('Retry')">Retry</span>
                 </button>
               </div>
-              <div
-                class="table-scroll"
+              <ol
+                class="history-list"
                 x-show="!loading.history && !errors.history && historyEntries.length"
               >
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th x-text="t('Date')">Date</th>
-                      <th x-text="t('Text')">Text</th>
-                      <th x-text="t('Words')">Words</th>
-                      <th x-text="t('Duration')">Duration</th>
-                      <th x-text="t('App')">App</th>
-                      <th>
-                        <span class="sr-only" x-text="t('Actions')"
-                          >Actions</span
-                        >
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <template x-for="entry in historyEntries" :key="entry.id">
-                      <tr>
-                        <td
-                          class="small"
-                          x-text="formatDate(entry.timestamp)"
-                        ></td>
-                        <td class="text-cell">
-                          <p x-text="entry.refined_text || entry.raw_text"></p>
-                          <p
-                            class="small muted"
-                            x-show="entry.refined_text"
-                            x-text="t('Original: {text}', { text: entry.raw_text })"
-                          ></p>
-                        </td>
-                        <td x-text="formatNumber(entry.word_count)"></td>
-                        <td x-text="formatDuration(entry.duration)"></td>
-                        <td
-                          x-text="entry.app_context || t('Not provided')"
-                        ></td>
-                        <td class="table-actions">
+                <template x-for="entry in historyEntries" :key="entry.id">
+                  <li
+                    class="history-entry"
+                    :id="'history-entry-' + entry.id"
+                  >
+                    <article>
+                      <header class="history-entry-header">
+                        <div class="history-entry-meta">
+                          <span x-text="formatDate(entry.timestamp)"></span>
+                          <span
+                            x-text="t('{count} words', { count: entry.word_count })"
+                          ></span>
+                          <span
+                            x-text="formatDuration(entry.duration)"
+                          ></span>
+                          <span
+                            x-text="entry.app_context || t('Not provided')"
+                          ></span>
+                        </div>
+                        <div class="history-entry-actions">
                           <button
                             class="icon-button"
                             type="button"
@@ -1494,12 +1852,29 @@
                               aria-hidden="true"
                             ></span>
                           </button>
-                        </td>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
-              </div>
+                        </div>
+                      </header>
+                      <p
+                        class="history-entry-text"
+                        x-text="entry.refined_text || entry.raw_text"
+                      ></p>
+                      <template
+                        x-if="entry.refined_text && entry.refined_text !== entry.raw_text"
+                      >
+                        <details class="history-original">
+                          <summary x-text="t('Original text')">
+                            Original text
+                          </summary>
+                          <p
+                            class="history-original-text"
+                            x-text="entry.raw_text"
+                          ></p>
+                        </details>
+                      </template>
+                    </article>
+                  </li>
+                </template>
+              </ol>
               <div
                 class="empty-state"
                 x-show="!loading.history && !errors.history && !historyEntries.length"
@@ -1552,7 +1927,11 @@
             </section>
           </section>
 
-          <section x-show="currentPage === 'dictionary'" x-cloak>
+          <section
+            x-show="currentPage === 'dictionary'"
+            x-cloak
+            :aria-busy="loading.dictionary && !errors.dictionary"
+          >
             <header class="page-header">
               <div>
                 <h1
@@ -1586,108 +1965,169 @@
               </button>
             </div>
             <section
-              class="dictionary-packs"
-              aria-labelledby="dictionary-packs-title"
+              class="dictionary-import panel"
+              aria-labelledby="dictionary-import-title"
               x-show="!loading.dictionary && !errors.dictionary"
             >
+              <div class="panel-header">
+                <div>
+                  <h2 id="dictionary-import-title" class="section-title" x-text="t('Import community dictionary')">
+                    Import community dictionary
+                  </h2>
+                  <p class="section-description" x-text="t('Review a file or HTTPS link before adding it to your dictionaries.')">
+                    Review a file or HTTPS link before adding it to your dictionaries.
+                  </p>
+                </div>
+              </div>
+              <form class="panel-body stack" @submit.prevent="previewDictionaryImport()">
+                <p class="field-help" x-show="dictionaryImportTargetId" x-text="t('Replacing {pack}', { pack: dictionaryImportTargetName() })"></p>
+                <fieldset class="import-mode">
+                  <legend class="field-label" x-text="t('Import source')">Import source</legend>
+                  <label>
+                    <input type="radio" value="file" x-model="dictionaryImportMode" @change="onDictionaryImportModeChange()" :disabled="dictionaryImportBusy" />
+                    <span x-text="t('File')">File</span>
+                  </label>
+                  <label>
+                    <input type="radio" value="url" x-model="dictionaryImportMode" @change="onDictionaryImportModeChange()" :disabled="dictionaryImportBusy" />
+                    <span x-text="t('HTTPS link')">HTTPS link</span>
+                  </label>
+                </fieldset>
+                <div class="field" x-show="dictionaryImportMode === 'file'">
+                  <label class="field-label" for="dictionary-import-file" x-text="t('Dictionary file')">Dictionary file</label>
+                  <input
+                    id="dictionary-import-file"
+                    class="input"
+                    type="file"
+                    accept=".json,.csv,application/json,text/csv"
+                    :disabled="dictionaryImportBusy"
+                    @change="handleDictionaryImportFile($event)"
+                  />
+                  <p class="field-help" x-show="dictionaryImportFilename" x-text="dictionaryImportFilename"></p>
+                </div>
+                <div class="field" x-show="dictionaryImportMode === 'url'">
+                  <label class="field-label" for="dictionary-import-url" x-text="t('Dictionary URL')">Dictionary URL</label>
+                  <input
+                    id="dictionary-import-url"
+                    class="input"
+                    type="url"
+                    inputmode="url"
+                    autocomplete="url"
+                    x-model="dictionaryImportUrl"
+                    :disabled="dictionaryImportBusy"
+                    :placeholder="t('https://example.com/dictionary.json')"
+                    @input="invalidateDictionaryImportPreview()"
+                  />
+                  <p class="field-help" x-text="t('Only public HTTPS links are fetched. GitHub files and Gists are supported.')">
+                    Only public HTTPS links are fetched. GitHub files and Gists are supported.
+                  </p>
+                </div>
+                <p class="field-error" role="alert" x-show="dictionaryImportError" x-text="t(dictionaryImportError)"></p>
+                <p class="field-error" x-show="dictionaryImportErrorDetail" x-text="dictionaryImportErrorDetail"></p>
+                <div class="form-actions">
+                  <button class="button button-primary" type="submit" :disabled="dictionaryImportBusy">
+                    <span x-text="dictionaryImportBusy ? t('Previewing…') : t('Preview import')">Preview import</span>
+                  </button>
+                  <button class="button button-secondary" type="button" x-show="dictionaryImportPreview || dictionaryImportFiles.length || dictionaryImportTargetId" :disabled="dictionaryImportBusy" @click="cancelDictionaryImport()" x-text="t('Cancel')">Cancel</button>
+                </div>
+              </form>
+              <div class="dictionary-gist-selection panel-body" x-show="dictionaryImportFiles.length">
+                <h3 class="field-label" x-text="t('Choose a Gist file')">Choose a Gist file</h3>
+                <ul class="dictionary-compact-list">
+                  <template x-for="file in dictionaryImportFiles" :key="file.name">
+                    <li>
+                      <span class="mono" x-text="file.name"></span>
+                      <button class="button button-secondary" type="button" :disabled="dictionaryImportBusy" @click="selectDictionaryImportFile(file)" x-text="t('Choose')">Choose</button>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+              <section class="dictionary-import-preview panel-body" x-show="dictionaryImportPreview" aria-live="polite">
+                <div class="section-heading">
+                  <h3 class="section-title" x-text="t('Review dictionary import')">Review dictionary import</h3>
+                  <p class="section-description" x-text="t('Nothing is added until you confirm.')">Nothing is added until you confirm.</p>
+                </div>
+                <dl class="dictionary-preview-meta">
+                  <div><dt x-text="t('Name')">Name</dt><dd x-text="dictionaryImportDocument().name || dictionaryImportDocument().id"></dd></div>
+                  <div><dt x-text="t('Identifier')">Identifier</dt><dd class="mono" x-text="dictionaryImportDocument().id"></dd></div>
+                  <div><dt x-text="t('License')">License</dt><dd x-text="dictionaryImportDocument().license || t('Unspecified')"></dd></div>
+                  <div x-show="dictionaryImportDocument().author"><dt x-text="t('Author')">Author</dt><dd x-text="dictionaryImportDocument().author"></dd></div>
+                  <div><dt x-text="t('Source')">Source</dt><dd><a x-show="dictionaryImportPreviewSourceUrl()" :href="dictionaryImportPreviewSourceUrl()" target="_blank" rel="noopener noreferrer" x-text="dictionaryImportPreviewSourceUrl()"></a><span x-show="!dictionaryImportPreviewSourceUrl()" x-text="dictionaryImportPreviewData()?.source?.filename"></span></dd></div>
+                  <div><dt x-text="t('Terms')">Terms</dt><dd x-text="formatNumber(dictionaryImportPreviewData()?.term_count || 0)"></dd></div>
+                  <div><dt x-text="t('Aliases')">Aliases</dt><dd x-text="formatNumber(dictionaryImportPreviewData()?.alias_count || 0)"></dd></div>
+                  <div><dt x-text="t('Duplicates')">Duplicates</dt><dd x-text="formatNumber(dictionaryImportPreviewData()?.duplicates || 0)"></dd></div>
+                </dl>
+                <div class="dictionary-preview-sources" x-show="dictionaryImportDocument().sources && dictionaryImportDocument().sources.length">
+                  <h4 x-text="t('Sources')">Sources</h4>
+                  <ul class="dictionary-compact-list">
+                    <template x-for="source in (dictionaryImportDocument().sources || [])" :key="source.title + source.url">
+                      <li x-show="safeExternalUrl(source.url)">
+                        <a :href="safeExternalUrl(source.url)" target="_blank" rel="noopener noreferrer" x-text="source.title || source.url"></a>
+                      </li>
+                    </template>
+                  </ul>
+                </div>
+                <details class="dictionary-preview-details">
+                  <summary x-text="t('Terms and recognized variants')">Terms and recognized variants</summary>
+                  <ul class="dictionary-compact-list dictionary-scroll-list">
+                    <template x-for="entry in dictionaryImportEntries()" :key="entry.word">
+                      <li><strong x-text="entry.word"></strong><span x-show="entry.aliases && entry.aliases.length" x-text="entry.aliases.join(', ')"></span><span class="muted" x-show="!entry.aliases || !entry.aliases.length" x-text="t('Recognition hint only')"></span></li>
+                    </template>
+                  </ul>
+                </details>
+                <section class="dictionary-preview-changes" x-show="dictionaryImportTargetId">
+                  <h4 x-text="t('Update details')">Update details</h4>
+                  <p class="field-help" x-show="dictionaryImportPreviewData()?.unchanged" x-text="t('No dictionary changes found.')">No dictionary changes found.</p>
+                  <div class="dictionary-change-grid">
+                    <div><h5 x-text="t('Added')">Added</h5><ul class="dictionary-scroll-list"><template x-for="entry in (dictionaryImportChanges().added || [])" :key="entry.word"><li x-text="dictionaryEntryDescription(entry)"></li></template></ul></div>
+                    <div><h5 x-text="t('Removed')">Removed</h5><ul class="dictionary-scroll-list"><template x-for="entry in (dictionaryImportChanges().removed || [])" :key="entry.word"><li x-text="dictionaryEntryDescription(entry)"></li></template></ul></div>
+                    <div><h5 x-text="t('Changed')">Changed</h5><ul class="dictionary-scroll-list"><template x-for="change in (dictionaryImportChanges().changed || [])" :key="change.before?.word + change.after?.word"><li><span x-text="dictionaryEntryDescription(change.before)"></span><span aria-hidden="true"> → </span><span x-text="dictionaryEntryDescription(change.after)"></span></li></template></ul></div>
+                  </div>
+                </section>
+                <section class="dictionary-conflicts" x-show="dictionaryImportHasConflicts()">
+                  <h4 x-text="t('Conflicts need acknowledgement')">Conflicts need acknowledgement</h4>
+                  <p class="field-help" x-text="t('Personal entries keep priority over imported aliases.')">Personal entries keep priority over imported aliases.</p>
+                  <ul class="dictionary-scroll-list">
+                    <template x-for="conflict in dictionaryImportConflicts()" :key="conflict.alias + conflict.existing + conflict.incoming">
+                      <li><strong x-text="conflict.alias"></strong><span aria-hidden="true">: </span><span x-text="conflict.existing"></span><span aria-hidden="true"> → </span><span x-text="conflict.incoming"></span><span class="muted" x-text="' (' + conflict.scope + ')'"></span></li>
+                    </template>
+                  </ul>
+                  <label class="checkbox-row"><input type="checkbox" x-model="dictionaryImportAcknowledged" :disabled="dictionaryImportBusy" /><span x-text="t('I understand these conflicts and want to continue.')">I understand these conflicts and want to continue.</span></label>
+                </section>
+                <div class="form-actions">
+                  <button class="button button-secondary" type="button" :disabled="dictionaryImportBusy" @click="cancelDictionaryImport()" x-text="t('Cancel')">Cancel</button>
+                  <button class="button button-primary" type="button" :disabled="dictionaryImportBusy || (dictionaryImportHasConflicts() && !dictionaryImportAcknowledged)" @click="confirmDictionaryImport()" x-text="dictionaryImportBusy ? t('Saving…') : t('Confirm import')">Confirm import</button>
+                </div>
+              </section>
+            </section>
+            <section class="dictionary-packs" aria-labelledby="dictionary-packs-title" x-show="!loading.dictionary && !errors.dictionary">
               <div class="section-heading">
-                <h2
-                  id="dictionary-packs-title"
-                  class="section-title"
-                  x-text="t('Bundled dictionaries')"
-                >
-                  Bundled dictionaries
-                </h2>
-                <p
-                  class="section-description"
-                  x-text="t('Choose optional term packs. Changes take effect with the next dictation without restarting.')"
-                >
-                  Choose optional term packs. Changes take effect with the next dictation without restarting.
-                </p>
+                <h2 id="dictionary-packs-title" class="section-title" x-text="t('Bundled dictionaries')">Bundled dictionaries</h2>
+                <p class="section-description" x-text="t('Choose optional term packs. Changes take effect with the next dictation without restarting.')">Choose optional term packs. Changes take effect with the next dictation without restarting.</p>
               </div>
               <div class="dictionary-pack-grid">
-                <template x-for="pack in dictionaryPacks()" :key="pack.id">
+                <template x-for="pack in bundledDictionaryPacks()" :key="pack.id">
                   <article class="dictionary-pack">
-                    <div class="dictionary-pack-header">
-                      <div>
-                        <h3
-                          class="dictionary-pack-title"
-                          x-text="dictionaryPackName(pack)"
-                        ></h3>
-                        <p
-                          class="dictionary-pack-description"
-                          x-text="dictionaryPackDescription(pack)"
-                        ></p>
-                      </div>
-                      <label class="dictionary-pack-toggle">
-                        <span class="sr-only" x-text="t('Enable {pack}', { pack: dictionaryPackName(pack) })"></span>
-                        <input
-                          class="switch"
-                          type="checkbox"
-                          :checked="pack.enabled"
-                          :disabled="!!dictionaryPackBusy[pack.id]"
-                          :aria-label="t('Enable {pack}', { pack: dictionaryPackName(pack) })"
-                          @change="setDictionaryPack(pack, $event.target.checked)"
-                        />
-                      </label>
-                    </div>
-                    <div class="dictionary-pack-meta">
-                      <span
-                        class="badge"
-                        :class="pack.enabled ? 'badge-success' : 'badge-muted'"
-                        x-text="pack.enabled ? t('Enabled') : t('Disabled')"
-                      ></span>
-                      <span x-text="dictionaryPackCounts(pack)"></span>
-                    </div>
-                    <p
-                      class="field-error"
-                      role="alert"
-                      x-show="dictionaryPackErrors[pack.id]"
-                      x-text="t(dictionaryPackErrors[pack.id])"
-                    ></p>
+                    <div class="dictionary-pack-header"><div><h3 class="dictionary-pack-title" x-text="dictionaryPackName(pack)"></h3><p class="dictionary-pack-description" x-text="dictionaryPackDescription(pack)"></p></div><label class="dictionary-pack-toggle"><span class="sr-only" x-text="t('Enable {pack}', { pack: dictionaryPackName(pack) })"></span><input class="switch" type="checkbox" :checked="pack.enabled" :disabled="!!dictionaryPackBusy[pack.id]" :aria-label="t('Enable {pack}', { pack: dictionaryPackName(pack) })" @change="setDictionaryPack(pack, $event.target.checked)" /></label></div>
+                    <div class="dictionary-pack-meta"><span class="badge" :class="pack.enabled ? 'badge-success' : 'badge-muted'" x-text="pack.enabled ? t('Enabled') : t('Disabled')"></span><span x-text="dictionaryPackCounts(pack)"></span></div>
+                    <p class="field-error" role="alert" x-show="dictionaryPackErrors[pack.id]" x-text="t(dictionaryPackErrors[pack.id])"></p>
                     <details class="dictionary-pack-details">
-                      <summary x-text="t('Inspect terms and recognized variants')">
-                        Inspect terms and recognized variants
-                      </summary>
+                      <summary x-text="t('Inspect terms and recognized variants')">Inspect terms and recognized variants</summary>
                       <ul class="dictionary-pack-terms">
-                        <template x-for="term in pack.terms" :key="term.word">
+                        <template x-for="term in dictionaryPackTerms(pack)" :key="term.word">
                           <li class="dictionary-pack-term">
                             <span class="dictionary-pack-word" x-text="term.word"></span>
-                            <template x-if="term.aliases.length">
-                              <span class="dictionary-pack-aliases">
-                                <span
-                                  class="sr-only"
-                                  x-text="t('Recognized variants') + ': '"
-                                ></span>
-                                <span x-text="term.aliases.join(', ')"></span>
-                              </span>
-                            </template>
-                            <template x-if="!term.aliases.length">
-                              <span
-                                class="badge badge-muted"
-                                x-text="t('Recognition hint only')"
-                              ></span>
-                            </template>
+                            <span class="dictionary-pack-aliases" x-show="term.aliases && term.aliases.length" x-text="term.aliases.join(', ')"></span>
+                            <span class="badge badge-muted" x-show="!term.aliases || !term.aliases.length" x-text="t('Recognition hint only')"></span>
                           </li>
                         </template>
                       </ul>
-                      <div class="dictionary-pack-sources" x-show="pack.sources.length">
+                      <div class="dictionary-pack-sources" x-show="dictionaryPackSources(pack).length">
                         <h4 x-text="t('Sources')">Sources</h4>
                         <ul>
-                          <template
-                            x-for="source in pack.sources"
-                            :key="source.title + source.url"
-                          >
-                            <template x-if="safeExternalUrl(source.url)">
-                              <li>
-                                <a
-                                  :href="safeExternalUrl(source.url)"
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  x-text="source.title"
-                                ></a>
-                              </li>
-                            </template>
+                          <template x-for="source in dictionaryPackSources(pack)" :key="source.title + source.url">
+                            <li x-show="safeExternalUrl(source.url)">
+                              <a :href="safeExternalUrl(source.url)" target="_blank" rel="noopener noreferrer" x-text="source.title"></a>
+                            </li>
                           </template>
                         </ul>
                       </div>
@@ -1695,6 +2135,25 @@
                   </article>
                 </template>
               </div>
+            </section>
+            <section class="dictionary-packs" aria-labelledby="community-dictionaries-title" x-show="!loading.dictionary && !errors.dictionary">
+              <div class="section-heading">
+                <h2 id="community-dictionaries-title" class="section-title" x-text="t('Community dictionaries')">Community dictionaries</h2>
+                <p class="section-description" x-text="t('Imported dictionaries are stored locally and updated only when you ask.')">Imported dictionaries are stored locally and updated only when you ask.</p>
+              </div>
+              <div class="dictionary-pack-grid" x-show="communityDictionaryPacks().length">
+                <template x-for="pack in communityDictionaryPacks()" :key="pack.id">
+                  <article class="dictionary-pack dictionary-community-pack">
+                    <div class="dictionary-pack-header"><div><div class="inline"><h3 class="dictionary-pack-title" x-text="dictionaryPackName(pack)"></h3><span class="badge badge-accent" x-text="t('Community')">Community</span></div><p class="dictionary-pack-description" x-text="dictionaryPackDescription(pack)"></p></div><label class="dictionary-pack-toggle"><span class="sr-only" x-text="t('Enable {pack}', { pack: dictionaryPackName(pack) })"></span><input class="switch" type="checkbox" :checked="pack.enabled" :disabled="!!dictionaryPackBusy[pack.id]" :aria-label="t('Enable {pack}', { pack: dictionaryPackName(pack) })" @change="setDictionaryPack(pack, $event.target.checked)" /></label></div>
+                    <div class="dictionary-pack-meta"><span class="badge" :class="pack.enabled ? 'badge-success' : 'badge-muted'" x-text="pack.enabled ? t('Enabled') : t('Disabled')"></span><span x-text="dictionaryPackCounts(pack)"></span><span x-text="t('License: {license}', { license: pack.license || t('Unspecified') })"></span></div>
+                    <p class="dictionary-pack-provenance"><a x-show="dictionaryPackSourceUrl(pack)" :href="dictionaryPackSourceUrl(pack)" target="_blank" rel="noopener noreferrer" x-text="dictionaryPackSourceUrl(pack)"></a><span x-show="!dictionaryPackSourceUrl(pack)" x-text="pack.source?.filename"></span></p>
+                    <p class="field-error" role="alert" x-show="dictionaryPackErrors[pack.id]" x-text="t(dictionaryPackErrors[pack.id])"></p>
+                    <div class="dictionary-card-actions"><button class="button button-secondary" type="button" x-show="pack.source?.kind === 'url'" :disabled="!!dictionaryPackBusy[pack.id] || dictionaryImportBusy" @click="checkDictionaryPackUpdate(pack)" x-text="t('Check for updates')">Check for updates</button><button class="button button-secondary" type="button" x-show="pack.source?.kind !== 'url'" :disabled="!!dictionaryPackBusy[pack.id] || dictionaryImportBusy" @click="prepareDictionaryFileReplacement(pack)" x-text="t('Replace file')">Replace file</button><button class="button button-danger" type="button" :disabled="!!dictionaryPackBusy[pack.id]" @click="requestConfirmation('Remove community dictionary?', 'The imported dictionary will be removed from this computer.', () => removeCommunityDictionaryPack(pack))" x-text="t('Remove')">Remove</button></div>
+                    <details class="dictionary-pack-details"><summary x-text="t('Inspect terms and recognized variants')">Inspect terms and recognized variants</summary><ul class="dictionary-pack-terms"><template x-for="term in dictionaryPackTerms(pack)" :key="term.word"><li class="dictionary-pack-term"><span class="dictionary-pack-word" x-text="term.word"></span><span class="dictionary-pack-aliases" x-show="term.aliases && term.aliases.length" x-text="term.aliases.join(', ')"></span><span class="badge badge-muted" x-show="!term.aliases || !term.aliases.length" x-text="t('Recognition hint only')"></span></li></template></ul></details>
+                  </article>
+                </template>
+              </div>
+              <div class="empty-state dictionary-community-empty" x-show="!communityDictionaryPacks().length"><p class="empty-description" x-text="t('No community dictionaries imported yet.')">No community dictionaries imported yet.</p></div>
             </section>
             <div
               class="split-layout"
@@ -1983,7 +2442,11 @@
             </div>
           </section>
 
-          <section x-show="currentPage === 'snippets'" x-cloak>
+          <section
+            x-show="currentPage === 'snippets'"
+            x-cloak
+            :aria-busy="loading.snippets && !errors.snippets"
+          >
             <header class="page-header">
               <div>
                 <h1
@@ -2092,10 +2555,14 @@
                   </div>
                 </div>
               </form>
-              <section class="data-panel">
+              <section class="data-panel" aria-labelledby="configured-snippets-title">
                 <div class="panel-header">
                   <div>
-                    <h2 class="section-title" x-text="t('Configured snippets')">
+                    <h2
+                      id="configured-snippets-title"
+                      class="section-title"
+                      x-text="t('Configured snippets')"
+                    >
                       Configured snippets
                     </h2>
                     <p
@@ -2106,11 +2573,14 @@
                 </div>
                 <div class="table-scroll" x-show="snippets.length">
                   <table class="data-table">
+                    <caption class="sr-only" x-text="t('Configured snippets')">
+                      Configured snippets
+                    </caption>
                     <thead>
                       <tr>
-                        <th x-text="t('Trigger')">Trigger</th>
-                        <th x-text="t('Expansion')">Expansion</th>
-                        <th>
+                        <th scope="col" x-text="t('Trigger')">Trigger</th>
+                        <th scope="col" x-text="t('Expansion')">Expansion</th>
+                        <th scope="col">
                           <span class="sr-only" x-text="t('Actions')"
                             >Actions</span
                           >
@@ -2165,7 +2635,11 @@
             </div>
           </section>
 
-          <section x-show="currentPage === 'models'" x-cloak>
+          <section
+            x-show="currentPage === 'models'"
+            x-cloak
+            :aria-busy="loading.models && !errors.models"
+          >
             <header class="page-header">
               <div>
                 <h1
@@ -2214,7 +2688,7 @@
                 <span
                   class="badge badge-muted"
                   x-show="!loading.diskUsage && !errors.diskUsage"
-                  x-text="t('Total usage: {size} MB', { size: formatNumber(diskUsage.mb || 0) })"
+                  x-text="t('Total usage: {size}', { size: formatMegabytes((diskUsage.bytes || 0) / 1000000) })"
                 ></span>
                 <button
                   class="button button-quiet"
@@ -2278,7 +2752,7 @@
                       <h2 x-text="model.name"></h2>
                       <p
                         class="model-size"
-                        x-text="t('~{size} MB', { size: formatNumber(model.size_mb) })"
+                        x-text="t('~{size}', { size: formatMegabytes(model.size_mb) })"
                       ></p>
                     </div>
                     <span

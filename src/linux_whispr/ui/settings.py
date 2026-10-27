@@ -178,7 +178,7 @@ class SettingsWindow:
         group = Adw.PreferencesGroup(title="Recording")
 
         # Silence duration
-        silence_row = Adw.SpinRow.new_with_range(0.5, 10.0, 0.5)
+        silence_row = Adw.SpinRow.new_with_range(0.5, 10.0, 0.1)
         silence_row.set_title("Silence Duration (seconds)")
         silence_row.set_subtitle("Auto-stop after this much silence")
         silence_row.set_value(self._config.audio.silence_duration)

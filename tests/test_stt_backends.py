@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import io
+import sys
+import types
 import wave
+from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -58,6 +62,124 @@ class TestFasterWhisperBackend:
             assert False, "Should have raised RuntimeError"
         except RuntimeError as e:
             assert "not loaded" in str(e).lower()
+
+    @staticmethod
+    def _write_cached_faster_whisper_model(
+        path: Path, *, include_tokenizer: bool = True
+    ) -> None:
+        path.mkdir(parents=True)
+        for filename in ("config.json", "model.bin", "vocabulary.json"):
+            (path / filename).write_bytes(b"cached")
+        if include_tokenizer:
+            (path / "tokenizer.json").write_bytes(b"cached")
+
+    def test_local_only_load_uses_complete_flat_cached_path(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        cached_model = tmp_path / "faster-whisper-base"
+        self._write_cached_faster_whisper_model(cached_model)
+        constructed: list[tuple[str, dict[str, object]]] = []
+
+        class Model:
+            def __init__(self, model_path: str, **kwargs: object) -> None:
+                constructed.append((model_path, kwargs))
+
+        manager = MagicMock()
+        manager.get_model_path.return_value = cached_model
+        monkeypatch.setattr(
+            "linux_whispr.stt.model_manager.ModelManager",
+            lambda: manager,
+        )
+        module = types.ModuleType("faster_whisper")
+        module.WhisperModel = Model  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "faster_whisper", module)
+
+        backend = FasterWhisperBackend(model_name="base", device="cpu")
+        backend.load(local_files_only=True)
+
+        assert constructed[0][0] == str(cached_model)
+        assert constructed[0][1]["local_files_only"] is True
+
+    def test_local_only_load_resolves_hf_cache_root_to_referenced_snapshot(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        repository = tmp_path / "models--Systran--faster-whisper-base"
+        revision = "0123456789abcdef"
+        (repository / "refs").mkdir(parents=True)
+        (repository / "refs" / "main").write_text(revision)
+        snapshot = repository / "snapshots" / revision
+        self._write_cached_faster_whisper_model(snapshot)
+        constructed: list[tuple[str, dict[str, object]]] = []
+
+        class Model:
+            def __init__(self, model_path: str, **kwargs: object) -> None:
+                constructed.append((model_path, kwargs))
+
+        manager = MagicMock()
+        manager.get_model_path.return_value = repository
+        monkeypatch.setattr(
+            "linux_whispr.stt.model_manager.ModelManager",
+            lambda: manager,
+        )
+        monkeypatch.setattr("linux_whispr.stt.faster_whisper.MODELS_DIR", tmp_path)
+
+        import faster_whisper
+
+        monkeypatch.setattr(faster_whisper, "WhisperModel", Model)
+
+        FasterWhisperBackend(model_name="base", device="cpu").load(local_files_only=True)
+
+        assert constructed[0][0] == str(snapshot)
+        assert constructed[0][1]["local_files_only"] is True
+
+    def test_local_only_load_rejects_missing_tokenizer_before_native_construction(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        cached_model = tmp_path / "faster-whisper-base"
+        self._write_cached_faster_whisper_model(cached_model, include_tokenizer=False)
+        constructed: list[str] = []
+        resolver_calls: list[object] = []
+
+        class Model:
+            def __init__(self, model_path: str, **kwargs: object) -> None:
+                constructed.append(model_path)
+
+        def download_model(*args: object, **kwargs: object) -> str:
+            resolver_calls.append((args, kwargs))
+            raise AssertionError("must not resolve an incomplete flat cache")
+
+        manager = MagicMock()
+        manager.get_model_path.return_value = cached_model
+        monkeypatch.setattr(
+            "linux_whispr.stt.model_manager.ModelManager",
+            lambda: manager,
+        )
+        module = types.ModuleType("faster_whisper")
+        module.__path__ = []  # type: ignore[attr-defined]
+        module.WhisperModel = Model  # type: ignore[attr-defined]
+        utils = types.ModuleType("faster_whisper.utils")
+        utils.download_model = download_model  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "faster_whisper", module)
+        monkeypatch.setitem(sys.modules, "faster_whisper.utils", utils)
+
+        with pytest.raises(RuntimeError, match="not completely cached locally"):
+            FasterWhisperBackend(model_name="base").load(local_files_only=True)
+
+        assert constructed == []
+        assert resolver_calls == []
+
+    def test_local_only_load_rejects_missing_cache_without_constructing_model(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        manager = MagicMock()
+        manager.get_model_path.return_value = None
+        monkeypatch.setattr(
+            "linux_whispr.stt.model_manager.ModelManager",
+            lambda: manager,
+        )
+
+        with pytest.raises(RuntimeError, match="not cached locally"):
+            FasterWhisperBackend(model_name="base").load(local_files_only=True)
 
 
 def _wav_bytes(
@@ -153,3 +275,32 @@ class TestWhisperCppBackend:
             "initial_prompt": "",
             "detect_language": False,
         }
+
+    def test_local_only_load_does_not_use_downloading_resolver(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        cached_model = tmp_path / "ggml-base.bin"
+        cached_model.write_bytes(b"model")
+        constructed: list[str] = []
+
+        class Model:
+            def __init__(self, model_path: str, **_kwargs: object) -> None:
+                constructed.append(model_path)
+
+        native = MagicMock()
+        manager = MagicMock()
+        manager.get_model_path.return_value = cached_model
+        backend = WhisperCppBackend(model_name="base", device="cpu")
+        backend._import_runtime = lambda: (Model, native)  # type: ignore[method-assign]
+        backend._download_model = MagicMock(  # type: ignore[method-assign]
+            side_effect=AssertionError("must not download")
+        )
+        monkeypatch.setattr(
+            "linux_whispr.stt.model_manager.ModelManager",
+            lambda: manager,
+        )
+
+        backend.load(local_files_only=True)
+
+        assert constructed == [str(cached_model)]
+        backend._download_model.assert_not_called()

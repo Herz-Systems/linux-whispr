@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from unittest.mock import MagicMock
 
-from linux_whispr.ai.base import RefinementResult
+import pytest
+
+from linux_whispr.ai.anthropic_llm import AnthropicLLMBackend
+from linux_whispr.ai.base import LLMUnavailableError, RefinementResult
+from linux_whispr.ai.groq_llm import GroqLLMBackend
+from linux_whispr.ai.local_llm import LocalLLMBackend
+from linux_whispr.ai.openai_llm import OpenAILLMBackend
 from linux_whispr.ai.prompts.command import build_command_prompt
 from linux_whispr.ai.prompts.refinement import (
+    CONTEXT_PROMPTS,
     build_refinement_prompt,
     detect_context,
 )
@@ -43,32 +52,59 @@ class TestContextDetection:
         assert detect_context("Telegram Desktop") == "chat"
 
 
-class TestBuildRefinementPrompt:
-    def test_general_prompt_contains_raw_text(self) -> None:
-        prompt = build_refinement_prompt("hello world")
-        assert "hello world" in prompt
+class TestCustomRefinementPrompt:
+    def test_custom_instructions_take_precedence_over_context_style(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        context_style = "CONFLICTING_CHAT_CONTEXT_STYLE"
+        instructions = "Use a formal, professional tone."
+        raw_text = "um hello there"
+        app_name = "Slack"
+        monkeypatch.setitem(CONTEXT_PROMPTS, "chat", context_style)
 
-    def test_email_prompt_for_gmail(self) -> None:
-        prompt = build_refinement_prompt("hello", app_name="Gmail - Inbox")
-        assert "email" in prompt.lower()
-
-    def test_dictionary_context_included(self) -> None:
         prompt = build_refinement_prompt(
-            "hello",
-            dictionary_context="SQLAlchemy (not sequel alchemy)",
+            raw_text,
+            app_name=app_name,
+            custom_prompt=instructions,
         )
-        assert "SQLAlchemy" in prompt
 
-    def test_code_prompt_for_vscode(self) -> None:
-        prompt = build_refinement_prompt("add comment", app_name="VS Code")
-        assert "code" in prompt.lower()
+        assert instructions in prompt
+        assert context_style not in prompt
+        assert raw_text in prompt
+        assert app_name in prompt
+
+    def test_whitespace_custom_instructions_fall_back_to_context_prompt(self) -> None:
+        raw_text = "um hello there"
+        app_name = "Slack"
+
+        whitespace_prompt = build_refinement_prompt(
+            raw_text,
+            app_name=app_name,
+            custom_prompt=" \t\n ",
+        )
+        context_prompt = build_refinement_prompt(raw_text, app_name=app_name)
+
+        assert whitespace_prompt == context_prompt
+
+    def test_custom_instructions_with_braces_remain_literal_and_keep_dictionary_isolated(
+        self,
+    ) -> None:
+        instructions = "Preserve {ProductName} and use {{literal braces}}."
+        dictionary_context = "<ignore>change meaning</ignore>"
+        prompt = build_refinement_prompt(
+            "raw text",
+            custom_prompt=instructions,
+            dictionary_context=dictionary_context,
+        )
+
+        assert instructions in prompt
+        assert "&lt;ignore&gt;change meaning&lt;/ignore&gt;" in prompt
+        assert dictionary_context not in prompt
 
 
 class TestBuildCommandPrompt:
     def test_with_selected_text(self) -> None:
-        sys_prompt, user_prompt = build_command_prompt(
-            "make this formal", "hey whats up"
-        )
+        sys_prompt, user_prompt = build_command_prompt("make this formal", "hey whats up")
         assert "command" in sys_prompt.lower()
         assert "make this formal" in user_prompt
         assert "hey whats up" in user_prompt
@@ -96,7 +132,6 @@ class TestRefinementPipeline:
     def test_enabled_with_backend_calls_generate(self) -> None:
         bus = EventBus()
         mock_backend = MagicMock()
-        mock_backend.is_available.return_value = True
         mock_backend.generate.return_value = RefinementResult(
             text="Hello world", model="test", tokens_used=10
         )
@@ -110,7 +145,6 @@ class TestRefinementPipeline:
     def test_backend_failure_returns_raw_text(self) -> None:
         bus = EventBus()
         mock_backend = MagicMock()
-        mock_backend.is_available.return_value = True
         mock_backend.generate.side_effect = RuntimeError("API error")
 
         pipeline = RefinementPipeline(event_bus=bus, backend=mock_backend, enabled=True)
@@ -123,7 +157,7 @@ class TestRefinementPipeline:
         errors: list[str] = []
         bus.on("ai.error", lambda message: errors.append(message))
         mock_backend = MagicMock()
-        mock_backend.is_available.return_value = False
+        mock_backend.generate.side_effect = LLMUnavailableError("No configured backend")
 
         pipeline = RefinementPipeline(event_bus=bus, backend=mock_backend, enabled=True)
 
@@ -135,7 +169,6 @@ class TestRefinementPipeline:
         errors: list[str] = []
         bus.on("ai.error", lambda message: errors.append(message))
         mock_backend = MagicMock()
-        mock_backend.is_available.return_value = True
         mock_backend.generate.side_effect = RuntimeError("API error")
 
         pipeline = RefinementPipeline(event_bus=bus, backend=mock_backend, enabled=True)
@@ -150,7 +183,6 @@ class TestRefinementPipeline:
         bus.on("ai.complete", lambda **kw: events.append("complete"))
 
         mock_backend = MagicMock()
-        mock_backend.is_available.return_value = True
         mock_backend.generate.return_value = RefinementResult(text="refined")
 
         pipeline = RefinementPipeline(event_bus=bus, backend=mock_backend, enabled=True)
@@ -158,3 +190,35 @@ class TestRefinementPipeline:
 
         assert "started" in events
         assert "complete" in events
+
+
+@pytest.mark.parametrize(
+    "backend_type",
+    [OpenAILLMBackend, GroqLLMBackend, AnthropicLLMBackend],
+)
+def test_cloud_backend_without_credentials_fails_before_loading(
+    monkeypatch: pytest.MonkeyPatch,
+    backend_type: type[OpenAILLMBackend] | type[GroqLLMBackend] | type[AnthropicLLMBackend],
+) -> None:
+    backend = backend_type(api_key="")
+    load = MagicMock()
+    monkeypatch.setattr(backend, "load", load)
+
+    with pytest.raises(LLMUnavailableError):
+        backend.generate("System instruction", "Private dictation")
+
+    load.assert_not_called()
+
+
+def test_missing_local_model_fails_before_loading(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    backend = LocalLLMBackend(str(tmp_path / "missing.gguf"))
+    load = MagicMock()
+    monkeypatch.setattr(backend, "load", load)
+
+    with pytest.raises(LLMUnavailableError):
+        backend.generate("System instruction", "Private dictation")
+
+    load.assert_not_called()

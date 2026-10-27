@@ -52,13 +52,25 @@ class WhisperCppBackend(STTBackend):
         self._device = device
         self._model: Any | None = None
 
-    def load(self) -> None:
-        """Load a cached GGML model and prove requested Vulkan initialization."""
+    def load(self, *, local_files_only: bool = False) -> None:
+        """Load a GGML model, optionally requiring an existing cached artifact."""
         if self._model is not None:
             return
 
+        if local_files_only:
+            from linux_whispr.stt.model_manager import ModelManager
+
+            model_path = ModelManager().get_model_path(
+                self._model_name, backend="whisper-cpp"
+            )
+            if model_path is None or not model_path.is_file():
+                raise RuntimeError(
+                    f"whisper.cpp model '{self._model_name}' is not cached locally"
+                )
+        else:
+            model_path = self._download_model()
+
         Model, native = self._import_runtime()
-        model_path = self._download_model()
         gpu_requested = self._device in {"auto", "vulkan"}
         init_messages: list[str] = []
 

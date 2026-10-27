@@ -5,9 +5,9 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from starlette.concurrency import run_in_threadpool
 
-from linux_whispr.config import AppConfig
 from linux_whispr.constants import SUPPORTED_WHISPER_CPP_MODELS, SUPPORTED_WHISPER_MODELS
 from linux_whispr.stt.model_manager import ModelManager, SUPPORTED_MODEL_BACKENDS
+from linux_whispr.web.api.config_routes import get_active_config
 
 router = APIRouter(tags=["models"])
 
@@ -38,11 +38,11 @@ def _validate_model_name(name: str, backend: str) -> None:
 
 
 @router.get("/models")
-async def list_models(backend: str = "faster-whisper") -> dict:
-    """List supported models and download status for one model backend."""
-    backend = _validate_backend(backend)
+async def list_models(backend: str | None = None) -> dict:
+    """List supported models for the requested or configured model backend."""
+    config = get_active_config()
+    backend = _validate_backend(backend if backend is not None else config.stt.backend)
     manager = _get_model_manager()
-    config = AppConfig.load()
     models = manager.list_models(backend=backend)
     configured_model_is_available = any(model.name == config.stt.model for model in models)
     active_model = (
@@ -67,9 +67,11 @@ async def list_models(backend: str = "faster-whisper") -> dict:
 
 
 @router.post("/models/{name}/download")
-async def download_model(name: str, backend: str = "faster-whisper") -> dict:
+async def download_model(name: str, backend: str | None = None) -> dict:
     """Download one backend-specific model without blocking the event loop."""
-    backend = _validate_backend(backend)
+    backend = _validate_backend(
+        backend if backend is not None else get_active_config().stt.backend
+    )
     _validate_model_name(name, backend)
     manager = _get_model_manager()
     try:
@@ -82,11 +84,11 @@ async def download_model(name: str, backend: str = "faster-whisper") -> dict:
 
 
 @router.delete("/models/{name}")
-async def delete_model(name: str, backend: str = "faster-whisper") -> dict:
+async def delete_model(name: str, backend: str | None = None) -> dict:
     """Delete one non-active backend-specific model."""
-    backend = _validate_backend(backend)
+    config = get_active_config()
+    backend = _validate_backend(backend if backend is not None else config.stt.backend)
     _validate_model_name(name, backend)
-    config = AppConfig.load()
     if config.stt.backend == backend and config.stt.model == name:
         raise HTTPException(
             status_code=409,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from linux_whispr.ai.base import LLMBackend, RefinementResult
+from linux_whispr.ai.base import LLMBackend, LLMUnavailableError, RefinementResult
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,9 @@ class LocalLLMBackend(LLMBackend):
         logger.info("Local LLM loaded")
 
     def generate(self, system_prompt: str, user_prompt: str) -> RefinementResult:
+        if not self.is_available():
+            raise LLMUnavailableError(f"Local LLM model file does not exist: {self._model_path}")
+
         if self._llm is None:
             self.load()
 
